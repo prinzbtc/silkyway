@@ -1,0 +1,23 @@
+[package]
+name = "silky-escrow"
+version = "0.1.0"
+edition = "2021"
+description = "Escrow program for Silkyway marketplace"
+authors = ["Silkyway Team"]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "silky_escrow"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+solana-program = "1.17.0"
+thiserror = "1.0.50"
+spl-token = { version = "4.0.0", features = ["no-entrypoint"] }
+borsh = "0.10.3"
