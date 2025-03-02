@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
-import { ImageUploader } from '@/components/listings/ImageUploader';
+import { MediaUploader } from '@/components/listings/MediaUploader';
+import { MediaProcessingTracker } from '@/components/listings/MediaProcessingTracker';
+import { MediaFile, MediaType, MediaProcessingStatus } from '@/types/media';
+import { UPLOAD_CONFIG } from '@/config/upload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,12 +17,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
-import { useConvertedPrice } from '@/hooks/price/useConvertedPrice';
+import { usePrice } from '@/hooks/usePrice';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { categories } from '@/lib/categories';
 import { BRAND_CATEGORIES, type BrandCategories } from "@/lib/brands"
 import { cn } from '@/lib/utils';
+import { normalizeCurrency } from '@/lib/price';
 import { BrandCombobox } from '@/components/ui/brand-combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -30,11 +33,16 @@ const formSchema = z.object({
   brand: z.string().optional(),
   price: z.coerce.number().min(0, { message: "Price must be a positive number" }),
   condition: z.string(), // Add condition field
-  images: z.array(z.object({
-    url: z.string(),
+  media: z.array(z.object({
+    id: z.string().optional(),
+    url: z.string().optional(),
     filename: z.string(),
+    type: z.enum(['IMAGE', 'VIDEO']),
     order: z.number(),
-  })).min(1, { message: "At least one image is required" }),
+    isMain: z.boolean().optional(),
+    thumbnail: z.string().optional(),
+    status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']).optional(),
+  })).min(1, { message: "At least one media file is required" }),
   noDelivery: z.boolean().optional(),
   handDelivery: z.boolean().optional(),
   postalService: z.boolean().optional(),
@@ -45,99 +53,171 @@ type FormValues = z.infer<typeof formSchema>;
 
 type CategoryBrands = Record<BrandCategories, string[]>;
 
-// Price conversion component
-const PriceConversion: FC<{ amount: number }> = ({ amount }) => {
-  const { convertedAmount, isLoading } = useConvertedPrice(amount);
-  const { preferredCurrency } = useCurrencyPreference();
+// SOL price conversion component
+const SolPriceConversion: FC<{ amount: number; currency: string }> = ({ amount, currency }) => {
+  // Use the provided currency for SOL conversion
+  // This ensures SOL conversion is based on the user's selected currency
+  const { solAmount, isSolLoading, formattedSol } = usePrice(amount, normalizeCurrency(currency));
 
-  if (isLoading) return (
+  if (isSolLoading) return (
     <span className="inline-block">
       <span className="inline-block w-24 h-4 animate-pulse rounded-md bg-muted" />
     </span>
   );
 
-  if (convertedAmount === null) return (
-    <span className="text-muted-foreground">Price unavailable</span>
+  if (solAmount === null) return (
+    <span className="text-muted-foreground">SOL price unavailable</span>
   );
 
   return (
     <span className="text-muted-foreground">
-      ≈ {new Intl.NumberFormat('en-US', { style: 'currency', currency: preferredCurrency }).format(convertedAmount)}
+      {formattedSol}
     </span>
   );
 };
 
+// Removed FiatPriceConversion component as SOL is no longer a selectable currency
+
 const CreateListingPage: FC = () => {
-  const router = useRouter();
   const { toast } = useToast();
-  const [images, setImages] = useState<File[]>([]);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const router = useRouter();
+  const [media, setMedia] = useState<MediaFile[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [categoryBrands, setCategoryBrands] = useState<CategoryBrands>({} as CategoryBrands);
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  // Get preferredCurrency from the usePrice hook
+  const { preferredCurrency } = usePrice(0, normalizeCurrency('USD'));
+  // Normalize the preferred currency to ensure consistent handling
+  const normalizedPreferredCurrency = normalizeCurrency(preferredCurrency);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
-  const [newListingId, setNewListingId] = useState<string>('');
-  const { preferredCurrency } = useCurrencyPreference();
+  const [newListingId, setNewListingId] = useState<string | null>(null);
+  const [mediaProcessingComplete, setMediaProcessingComplete] = useState(false);
+  const [processingFailed, setProcessingFailed] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: '',
       description: '',
+      category: '',
+      brand: '',
       price: 0,
+      condition: '',
+      media: [],
       noDelivery: false,
       handDelivery: false,
       postalService: false,
       deliveryPrice: 0,
-      condition: '',
-    },
+    }
   });
 
-  // Effect to sync images with form
-  useEffect(() => {
-    // Convert File[] to the format expected by the form schema
-    const formattedImages = images.map((file, index) => ({
-      url: URL.createObjectURL(file),
-      filename: file.name,
-      order: index
-    }));
-    
-    // Set the images in the form
-    form.setValue('images', formattedImages);
-  }, [images, form.setValue]);
-
   const onSubmit = async (values: FormValues) => {
-    console.log('Form submission started', values);
-    console.log('Form validation state:', form.formState);
-    setIsPublishing(true);
     try {
-      // Prepare delivery options
-      const deliveryOptions = {
-        noDelivery: values.noDelivery || false,
-        handDelivery: values.handDelivery || false,
-        postalService: values.postalService || false,
-        deliveryPrice: values.deliveryPrice || 0,
-      };
-
-      // Prepare form data
-      const formData = new FormData();
-      formData.append('title', values.title);
-      formData.append('category', values.category);
-      formData.append('brand', values.brand || '');
-      formData.append('description', values.description);
-      formData.append('price', values.price.toString());
-      formData.append('condition', values.condition);
-      formData.append('deliveryOptions', JSON.stringify(deliveryOptions));
-
-      // Append images
-      images.forEach((file, index) => {
-        formData.append(`image${index}`, file);
+      setIsLoading(true);
+      
+      // Log form values for debugging
+      console.log('Form values being submitted:', {
+        ...values,
+        noDelivery: values.noDelivery === true,
+        handDelivery: values.handDelivery === true,
+        postalService: values.postalService === true,
       });
 
-      console.log('Submitting form data:', Object.fromEntries(formData.entries()));
+      // Validate that we have at least one image
+      const hasImage = media.some(m => m.type === MediaType.IMAGE);
+      if (!hasImage) {
+        toast({
+          title: 'Error',
+          description: 'You must upload at least one image',
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
 
-      // Submit listing
+      // Ensure we have a main media, or set the first one as main
+      const hasMainMedia = media.some(m => m.isMain);
+      if (!hasMainMedia && media.length > 0) {
+        const updatedMedia = [...media];
+        updatedMedia[0].isMain = true;
+        setMedia(updatedMedia);
+      }
+
+      // Check if any media is still processing
+      const pendingMedia = media.filter(m => 
+        m.status === MediaProcessingStatus.PENDING || 
+        m.status === MediaProcessingStatus.PROCESSING
+      );
+
+      if (pendingMedia.length > 0 && !mediaProcessingComplete) {
+        toast({
+          title: 'Media processing',
+          description: 'Please wait while we process your media files',
+        });
+        
+        // Don't proceed with submission until media processing is complete
+        setIsLoading(false);
+        return;
+      }
+
+      // Check for failed media
+      const failedMedia = media.filter(m => m.status === MediaProcessingStatus.FAILED);
+      if (failedMedia.length > 0) {
+        toast({
+          title: 'Media processing failed',
+          description: 'Some media files failed to process. Please remove them and try again.',
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Log media items for debugging
+      console.log('Submitting media items:', media.map(m => ({
+        url: m.url,
+        serverUrl: (m as any).serverUrl,
+        finalUrl: (m as any).serverUrl || m.url
+      })));
+      
+      // Create the listing
       const response = await fetch('/api/listings', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          // Extract only the fields that should be directly on the listing
+          title: values.title,
+          description: values.description,
+          category: values.category,
+          brand: values.brand,
+          price: values.price,
+          condition: values.condition,
+          // Include media items
+          media: media.map(m => {
+            // Use serverUrl if available, otherwise use the regular url
+            const url = (m as any).serverUrl || m.url;
+            
+            return {
+              id: m.id,
+              url: url,
+              filename: m.filename,
+              type: m.type,
+              order: m.order,
+              isMain: m.isMain,
+              thumbnail: m.thumbnail,
+            };
+          }),
+          // Include delivery options
+          // Explicitly convert boolean values to ensure they're properly transmitted
+          noDelivery: values.noDelivery === true,
+          handDelivery: values.handDelivery === true,
+          postalService: values.postalService === true,
+          deliveryPrice: values.deliveryPrice || 0,
+          // Include currency (normalized to ensure consistent handling)
+          currency: normalizedPreferredCurrency,
+        }),
       });
 
       if (!response.ok) {
@@ -148,20 +228,37 @@ const CreateListingPage: FC = () => {
           description: errorData.error || 'Failed to create listing',
           variant: 'destructive',
         });
+        setIsLoading(false);
         return;
       }
 
       const newListing = await response.json();
       console.log('Listing created:', newListing);
 
+      // Invalidate all caches to ensure the new listing appears everywhere
+      try {
+        console.log('Invalidating all listing caches');
+        const invalidateResponse = await fetch('/api/cache/invalidate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ type: 'all' }),
+        });
+        
+        if (invalidateResponse.ok) {
+          console.log('Cache invalidation successful');
+        } else {
+          console.error('Cache invalidation failed:', await invalidateResponse.text());
+        }
+      } catch (error) {
+        console.error('Error invalidating caches:', error);
+      }
+
       // Set new listing ID and show success dialog
       setNewListingId(newListing.id);
       setShowSuccessDialog(true);
-
-      // Optional: Redirect after a short delay
-      setTimeout(() => {
-        router.push(`/listings/${newListing.id}`);
-      }, 1500);
+      setIsLoading(false);
     } catch (error) {
       console.error('Unexpected error in listing creation:', error);
       toast({
@@ -169,17 +266,81 @@ const CreateListingPage: FC = () => {
         description: 'An unexpected error occurred',
         variant: 'destructive',
       });
-    } finally {
-      setIsPublishing(false);
+      setIsLoading(false);
     }
   };
 
   const handleCancel = () => {
-    setShowCancelDialog(true);
+    setConfirmCancel(true);
   };
 
-  const confirmCancel = () => {
+  const handleConfirmCancel = () => {
     router.push('/dashboard');
+  };
+
+  // Handle file upload
+  const handleMediaChange = async (newMedia: MediaFile[]) => {
+    setMedia(newMedia);
+    
+    // Reset processing status when media changes
+    setMediaProcessingComplete(false);
+    setProcessingFailed(false);
+    
+    // Update the form with the new media files
+    form.setValue('media', newMedia, { shouldValidate: true });
+  };
+
+  // Handle media processing completion
+  const handleProcessingComplete = () => {
+    setMediaProcessingComplete(true);
+    setProcessingFailed(false);
+    toast({
+      title: 'Media processing complete',
+      description: 'All media files have been processed successfully',
+    });
+  };
+  
+  // We'll validate the form when needed instead of using an effect
+  
+  // Debug log for media state and form validity - only log on significant changes
+  useEffect(() => {
+    // Only log when media changes or processing status changes
+    if (media.length > 0) {
+      console.log('Media processing status update:');
+      console.log('- Media processing complete:', mediaProcessingComplete);
+      console.log('- Media with server URLs:', media.filter(item => !!(item as any).serverUrl).length);
+      console.log('- Total media count:', media.length);
+      console.log('- Button enabled:', !(isLoading || (media.length > 0 && !isMediaReadyForSubmission(media)) || processingFailed || !form.formState.isValid));
+    }
+  }, [media.length, mediaProcessingComplete, isLoading, processingFailed]);
+
+  // Check if all media items have server URLs or are otherwise ready for submission
+  const isMediaReadyForSubmission = (mediaItems: MediaFile[]) => {
+    // If there are no media items, they're ready by default
+    if (mediaItems.length === 0) return true;
+    
+    // If mediaProcessingComplete is true, trust that flag
+    if (mediaProcessingComplete) return true;
+    
+    // Otherwise, check if all media items have server URLs
+    const allHaveServerUrls = mediaItems.every(item => !!(item as any).serverUrl);
+    
+    // If all have server URLs, also set mediaProcessingComplete to true
+    if (allHaveServerUrls && !mediaProcessingComplete) {
+      setMediaProcessingComplete(true);
+    }
+    
+    return allHaveServerUrls;
+  };
+  
+  // Handle media processing failure
+  const handleProcessingFailed = (failedMedia: MediaFile[]) => {
+    setProcessingFailed(true);
+    toast({
+      title: 'Media processing failed',
+      description: `${failedMedia.length} media files failed to process`,
+      variant: 'destructive',
+    });
   };
 
   return (
@@ -191,19 +352,27 @@ const CreateListingPage: FC = () => {
         <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
             console.log('Form validation errors:', errors);
           })} className="space-y-8">
-          {/* Image Upload */}
+          {/* Media Upload */}
           <div className="space-y-4">
-
-            <FormLabel>Images</FormLabel>
-            <ImageUploader
-              images={images}
-              onChange={setImages}
-              maxImages={3}
-              maxSize={3 * 1024 * 1024}
+            <FormLabel>Media Files</FormLabel>
+            <MediaUploader
+              media={media}
+              onChange={handleMediaChange}
+              onProcessingComplete={handleProcessingComplete}
             />
             <FormDescription>
-              Upload up to 3 images (max 3MB each). Drag to reorder - first image will be the main image.
+              Upload up to {UPLOAD_CONFIG.IMAGE.MAX_FILES} images (max {UPLOAD_CONFIG.IMAGE.MAX_SIZE_MB}MB each) and {UPLOAD_CONFIG.VIDEO.MAX_FILES} video (max {UPLOAD_CONFIG.VIDEO.MAX_SIZE_MB}MB). 
+              Drag to reorder - you can set any media as the main one.
             </FormDescription>
+            
+            {/* Media Processing Tracker */}
+            {media.length > 0 && (
+              <MediaProcessingTracker 
+                media={media}
+                onProcessingComplete={handleProcessingComplete}
+                onProcessingFailed={handleProcessingFailed}
+              />
+            )}
           </div>
 
           {/* Title */}
@@ -377,28 +546,33 @@ const CreateListingPage: FC = () => {
             render={({ field }) => (
               <FormItem>
                 <FormLabel htmlFor="listing-price">
-                  Price (SOL)
+                  Price ({normalizedPreferredCurrency})
                   <span className="text-destructive">*</span>
                 </FormLabel>
                 <FormControl>
-                  <Input
-                    id="listing-price"
-                    type="number"
-                    step="0.00001"
-                    min="0.00001"
-                    max="2000000"
-                    placeholder="Enter price in SOL"
-                    className={cn(
-                      field.value < 0.00001 && "border-destructive focus-visible:ring-destructive",
-                      field.value > 2000000 && "border-destructive focus-visible:ring-destructive",
-                      !field.value && form.formState.isSubmitted && "border-destructive focus-visible:ring-destructive"
-                    )}
-                    {...field}
-                    onChange={(e) => {
-                      const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                      field.onChange(isNaN(value) ? 0 : value);
-                    }}
-                  />
+                  <div className="relative">
+                    <Input
+                      id="listing-price"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max="1000000"
+                      placeholder={`Enter price in ${normalizedPreferredCurrency}`}
+                      className={cn(
+                        field.value < 0.01 && "border-destructive focus-visible:ring-destructive",
+                        field.value > 1000000 && "border-destructive focus-visible:ring-destructive",
+                        !field.value && form.formState.isSubmitted && "border-destructive focus-visible:ring-destructive"
+                      )}
+                      {...field}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                        field.onChange(isNaN(value) ? 0 : value);
+                      }}
+                    />
+                    <div className="absolute right-3 top-2 text-sm">
+                      <SolPriceConversion amount={field.value} currency={normalizedPreferredCurrency} />
+                    </div>
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -484,7 +658,7 @@ const CreateListingPage: FC = () => {
             name="deliveryPrice"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Delivery Price (SOL)</FormLabel>
+                <FormLabel>Delivery Price ({normalizedPreferredCurrency})</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
@@ -499,7 +673,7 @@ const CreateListingPage: FC = () => {
                 </FormControl>
                 {form.watch('postalService') && (
                   <div className="mt-1 text-sm text-muted-foreground">
-                    <PriceConversion amount={field.value || 0} />
+                    <SolPriceConversion amount={field.value || 0} currency={normalizedPreferredCurrency} />
                   </div>
                 )}
                 <FormMessage />
@@ -515,9 +689,14 @@ const CreateListingPage: FC = () => {
               <div className="flex justify-between items-center text-lg">
                 <span>Price:</span>
                 <div className="text-right">
-                  <div className="font-semibold">{form.watch('price')} SOL</div>
+                  <div className="font-semibold">
+                    {new Intl.NumberFormat('en-US', {
+                      style: 'currency',
+                      currency: normalizedPreferredCurrency
+                    }).format(form.watch('price'))}
+                  </div>
                   <div className="text-sm">
-                    <PriceConversion amount={form.watch('price')} />
+                    <SolPriceConversion amount={form.watch('price')} currency={normalizedPreferredCurrency} />
                   </div>
                 </div>
               </div>
@@ -534,9 +713,14 @@ const CreateListingPage: FC = () => {
                     <span className="text-xs">(1.8%)</span>
                   </span>
                   <div className="text-right">
-                    <div>{(form.watch('price') * 0.018).toFixed(6)} SOL</div>
+                    <div>
+                      {new Intl.NumberFormat('en-US', {
+                        style: 'currency',
+                        currency: normalizedPreferredCurrency
+                      }).format(form.watch('price') * 0.018)}
+                    </div>
                     <div className="text-xs">
-                      <PriceConversion amount={form.watch('price') * 0.018} />
+                      <SolPriceConversion amount={form.watch('price') * 0.018} currency={normalizedPreferredCurrency} />
                     </div>
                   </div>
                 </div>
@@ -546,9 +730,14 @@ const CreateListingPage: FC = () => {
                   <div className="flex justify-between items-center">
                     <span>Delivery Fee</span>
                     <div className="text-right">
-                      <div>{form.watch('deliveryPrice')} SOL</div>
+                      <div>
+                        {new Intl.NumberFormat('en-US', {
+                          style: 'currency',
+                          currency: normalizedPreferredCurrency
+                        }).format(form.watch('deliveryPrice') || 0)}
+                      </div>
                       <div className="text-xs">
-                        <PriceConversion amount={form.watch('deliveryPrice') || 0} />
+                        <SolPriceConversion amount={form.watch('deliveryPrice') || 0} currency={normalizedPreferredCurrency} />
                       </div>
                     </div>
                   </div>
@@ -576,15 +765,18 @@ const CreateListingPage: FC = () => {
             <Button type="button" variant="outline" onClick={handleCancel}>
               Cancel Listing
             </Button>
-            <Button type="submit" disabled={isPublishing}>
-              {isPublishing ? 'Publishing...' : 'Publish Listing'}
+            <Button 
+              type="submit" 
+              disabled={isLoading || (media.length > 0 && !isMediaReadyForSubmission(media)) || processingFailed || !form.formState.isValid}
+            >
+              {isLoading ? 'Publishing...' : 'Publish Listing'}
             </Button>
           </div>
         </form>
       </Form>
 
       {/* Cancel Dialog */}
-      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+      <Dialog open={confirmCancel} onOpenChange={setConfirmCancel}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Cancel Listing</DialogTitle>
@@ -593,10 +785,10 @@ const CreateListingPage: FC = () => {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowCancelDialog(false)}>
+            <Button variant="outline" onClick={() => setConfirmCancel(false)}>
               Resume
             </Button>
-            <Button variant="destructive" onClick={confirmCancel}>
+            <Button variant="destructive" onClick={handleConfirmCancel}>
               Cancel Listing
             </Button>
           </DialogFooter>
@@ -613,7 +805,10 @@ const CreateListingPage: FC = () => {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowSuccessDialog(false)}>
+            <Button variant="outline" onClick={() => {
+              setShowSuccessDialog(false);
+              router.push('/dashboard');
+            }}>
               Close
             </Button>
             <Button onClick={() => router.push(`/listings/${newListingId}`)}>

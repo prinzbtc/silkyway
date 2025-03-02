@@ -1,6 +1,6 @@
 'use client';
 
-import { FC } from 'react';
+import { FC, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,15 @@ interface ActiveListingsProps {
 }
 
 export const ActiveListings: FC<ActiveListingsProps> = ({ userId }) => {
+  // Use state to force refresh
+  const [refreshKey, setRefreshKey] = useState(Date.now());
+  
+  // Force refresh when component mounts
+  useEffect(() => {
+    console.log('ActiveListings component mounted, forcing refresh');
+    setRefreshKey(Date.now());
+  }, []);
+  
   const {
     listings,
     isLoading,
@@ -24,7 +33,9 @@ export const ActiveListings: FC<ActiveListingsProps> = ({ userId }) => {
       createdBy: userId,
       status: 'active',
     },
-  });
+    // Add the refreshKey as a dependency to force refresh
+    // This will cause the hook to refetch when refreshKey changes
+  }, [refreshKey]);
 
   if (error) {
     return (
@@ -46,15 +57,18 @@ export const ActiveListings: FC<ActiveListingsProps> = ({ userId }) => {
 
   if (listings.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-md dark:shadow-[0_4px_12px_0px_rgba(0,0,0,0.5)] p-6 text-center">
-        <p className="text-gray-500 mb-4">
-          You don&apos;t have any active listings yet
-        </p>
-        <Button asChild>
-          <Link href="/create">
-            Create Your First Listing
-          </Link>
-        </Button>
+      <div className="bg-white rounded-lg shadow-md dark:shadow-[0_4px_12px_0px_rgba(0,0,0,0.5)] p-6">
+  
+        <div className="text-center">
+          <p className="text-gray-500 mb-4">
+            You don&apos;t have any active listings yet
+          </p>
+          <Button asChild>
+            <Link href="/create">
+              Create Your First Listing
+            </Link>
+          </Button>
+        </div>
       </div>
     );
   }

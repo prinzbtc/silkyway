@@ -39,7 +39,9 @@ export async function generateMetadata({
 }: { 
   params: { id: string } 
 }): Promise<Metadata> {
-  const user = await getUserById(params.id);
+  // Await params to fix the Next.js warning
+  const resolvedParams = await params;
+  const user = await getUserById(resolvedParams.id);
   
   if (!user) {
     return {
@@ -54,11 +56,14 @@ export async function generateMetadata({
   };
 }
 
-export default function UserListingsPage({ 
+export default async function UserListingsPage({ 
   params 
 }: { 
   params: { id: string } 
 }) {
+  // Await params to fix the Next.js warning
+  const resolvedParams = await params;
+  
   return (
     <Suspense fallback={
       <div className="container mx-auto px-4 py-8">
@@ -70,7 +75,7 @@ export default function UserListingsPage({
         </div>
       </div>
     }>
-      <UserListingsContent userId={params.id} />
+      <UserListingsContent userId={resolvedParams.id} />
     </Suspense>
   );
 }

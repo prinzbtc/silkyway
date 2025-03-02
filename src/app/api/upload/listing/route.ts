@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
-import { validateFile, saveFile } from '@/lib/uploads';
+import { validateFile, saveTempFile, getMediaType, mapDbMediaToMediaFile } from '@/lib/uploads';
+import prisma from '@/lib/prisma';
+import { MediaType, MediaProcessingStatus } from '@/types/media';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,6 +16,9 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    const order = formData.get('order') ? parseInt(formData.get('order') as string) : 0;
+    const listingId = formData.get('listingId') as string;
+    const isMain = formData.get('isMain') === 'true';
 
     if (!file) {
       return NextResponse.json(
@@ -23,16 +28,33 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file
-    await validateFile(file, 'listing');
+    await validateFile(file, 'temp');
 
-    // Save file
-    const { url } = await saveFile(file, 'listing');
+    // Save file to temp directory first
+    const { url, filepath, type } = await saveTempFile(file);
 
-    return NextResponse.json({ url });
+    // Create a media record in the database
+    const media = await prisma.listingMedia.create({
+      data: {
+        url,
+        filename: file.name,
+        type,
+        order,
+        isMainMedia: isMain,
+        status: MediaProcessingStatus.PENDING,
+        originalFilename: file.name,
+        userId: session.user.id,
+        updatedAt: new Date(),
+        ...(listingId ? { listingId } : {})
+      }
+    });
+
+    // Return the media info
+    return NextResponse.json(mapDbMediaToMediaFile(media));
   } catch (error) {
     console.error('Error uploading file:', error);
     return NextResponse.json(
-      { error: 'Failed to upload file' },
+      { error: error instanceof Error ? error.message : 'Failed to upload file' },
       { status: 500 }
     );
   }

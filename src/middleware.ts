@@ -57,7 +57,9 @@ export async function middleware(request: NextRequest) {
       '/api/auth/verify',
       '/api/auth/session',
       '/api/listings', // Public listings
-      '/api/search'    // Public search
+      '/api/search',   // Public search
+      '/api/prices',   // Public currency conversion
+      '/api/exchange-rates' // Public exchange rates
     ];
 
     const isPublicApiRoute = publicApiRoutes.some(p => path.startsWith(p));

@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
-import { formatPrice, formatSOL, getSolPrice } from '@/lib/price';
+import { formatPrice, formatSOL, getSolPrice, type Currency } from '@/lib/price';
 
 import { Transaction } from '@/types/transaction';
 import { getTransactionBadges, formatTransactionAmount } from '@/lib/transactions';
@@ -47,8 +47,11 @@ export function TransactionCard({ transaction, type }: TransactionCardProps) {
 
   useEffect(() => {
     const updatePrice = async () => {
-      const price = await getSolPrice(preferredCurrency);
-      setSolPrice(price);
+      // Make sure we're not passing 'SOL' to getSolPrice
+      if (preferredCurrency !== 'SOL') {
+        const price = await getSolPrice(preferredCurrency as Exclude<Currency, 'SOL'>);
+        setSolPrice(price);
+      }
     };
 
     updatePrice();

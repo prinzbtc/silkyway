@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
 import type { Conversation } from '@/types/conversation';
-import { formatPrice, formatSOL, getSolPrice } from '@/lib/price';
+import { formatPrice, formatSOL, getSolPrice, type Currency } from '@/lib/price';
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -105,8 +105,11 @@ function PriceInPreferredCurrency({
 
   useEffect(() => {
     const updatePrice = async () => {
-      const solPrice = await getSolPrice(currency as any);
-      setPrice(solPrice ? amount * solPrice : null);
+      // Make sure we're not passing 'SOL' to getSolPrice
+      if (currency !== 'SOL') {
+        const solPrice = await getSolPrice(currency as Exclude<Currency, 'SOL'>);
+        setPrice(solPrice ? amount * solPrice : null);
+      }
     };
 
     updatePrice();
@@ -116,7 +119,7 @@ function PriceInPreferredCurrency({
 
   return (
     <span className="text-xs text-gray-500">
-      {formatPrice(price, currency as any)}
+      {formatPrice(price, currency as Currency)}
     </span>
   );
 }

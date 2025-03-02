@@ -18,7 +18,7 @@ export async function GET(
     const listing = await prisma.listing.findUnique({
       where: { id },
       include: {
-        images: true,
+        media: true,
         user: {
           select: {
             id: true,
@@ -56,13 +56,15 @@ export async function GET(
     }
 
     // Calculate total favorites count
-    const favoritesCount = listing.favorites?.length ?? 0;
+    const favoritesCount = listing?.favorites?.length ?? 0;
 
     // Remove favorites array from response
-    const { favorites, ...listingWithoutFavorites } = listing;
+    const { favorites, ...listingWithoutFavorites } = listing as any;
 
-    console.log('Listing creator ID:', listing.user.id);
-    console.log('Listing creator walletAddress:', listing.user.walletAddress);
+    if (listing?.user) {
+      console.log('Listing creator ID:', listing.user.id);
+      console.log('Listing creator walletAddress:', listing.user.walletAddress);
+    }
 
     return NextResponse.json({
       ...listingWithoutFavorites,

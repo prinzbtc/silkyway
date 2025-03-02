@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
-import { formatPrice, formatSOL, getSolPrice } from '@/lib/price';
+import { type Currency, normalizeCurrency } from '@/lib/price';
+import { usePrice } from '@/hooks/usePrice';
 import { cn } from '@/lib/utils';
 import type { Offer, Listing } from '@/types/conversation';
 
@@ -23,17 +23,41 @@ export default function OfferCard({
 }: OfferCardProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const { preferredCurrency } = useCurrencyPreference();
-  const [solPrice, setSolPrice] = useState<number | null>(null);
-
-  useEffect(() => {
-    const updatePrice = async () => {
-      const price = await getSolPrice(preferredCurrency);
-      setSolPrice(price);
-    };
-
-    updatePrice();
-  }, [preferredCurrency]);
+  
+  // Ensure currency is properly typed as Currency and use the actual listing currency
+  // This is critical - we must use the currency that was stored with the listing
+  // Use normalizeCurrency to ensure proper currency handling regardless of input type
+  const listingCurrency = normalizeCurrency(listing.currency);
+  
+  // Debug the currency value
+  console.log('OfferCard - Original currency:', listing.currency, 'Normalized currency:', listingCurrency);
+  console.log('OfferCard - Currency type check:', typeof listing.currency, 'Is null?', listing.currency === null, 'Is undefined?', listing.currency === undefined);
+  
+  // Use consolidated price hook for listing price
+  // IMPORTANT: We must directly pass the currency from the listing to ensure proper conversion
+  const { 
+    preferredAmount: listingFiatAmount,
+    preferredCurrency,
+    solAmount: listingSolAmount,
+    isSolLoading: listingSolLoading,
+    isPreferredLoading: listingFiatLoading,
+    formattedOriginal: listingFormattedOriginal,
+    formattedPreferred: listingFormattedPreferred,
+    formattedSol: listingFormattedSol,
+    showConverted: listingShowConverted
+  } = usePrice(listing.price, listingCurrency);
+  
+  // Use consolidated price hook for offer price
+  const { 
+    preferredAmount: offerFiatAmount,
+    solAmount: offerSolAmount,
+    isSolLoading: offerSolLoading,
+    isPreferredLoading: offerFiatLoading,
+    formattedOriginal: offerFormattedOriginal,
+    formattedPreferred: offerFormattedPreferred,
+    formattedSol: offerFormattedSol,
+    showConverted: offerShowConverted
+  } = usePrice(offer.amount, listingCurrency);
 
   const handleAcceptOffer = async () => {
     try {
@@ -95,25 +119,34 @@ export default function OfferCard({
 
       {/* Price Comparison */}
       <div className="space-y-1">
+        {/* Original listing price - crossed out */}
         <div className="flex items-baseline gap-2">
           <span className="text-sm text-gray-500 line-through">
-            {formatSOL(listing.price)}
+            {listingFormattedOriginal}
           </span>
-          {solPrice && (
-            <span className="text-xs text-gray-500 line-through">
-              {formatPrice(listing.price * solPrice, preferredCurrency)}
-            </span>
-          )}
+          <span className="text-xs text-gray-500 line-through">
+            {listingSolLoading 
+              ? 'Converting...' 
+              : listingSolAmount !== null 
+                ? `≈ ${listingSolAmount.toFixed(6)} SOL` 
+                : 'SOL price unavailable'}
+          </span>
         </div>
+        
+        {/* Offer price */}
         <div className="flex items-baseline gap-2">
           <span className="text-lg font-medium">
-            {formatSOL(offer.amount)}
+            {offerShowConverted ? offerFormattedPreferred : offerFormattedOriginal}
+            {offerFiatLoading && offerShowConverted && 
+              <span className="text-xs font-normal ml-1 text-gray-500">(converting...)</span>}
           </span>
-          {solPrice && (
-            <span className="text-sm text-gray-500">
-              {formatPrice(offer.amount * solPrice, preferredCurrency)}
-            </span>
-          )}
+        </div>
+        
+        {/* SOL equivalent for offer */}
+        <div className="text-sm text-gray-500 mt-1">
+          {offerSolLoading 
+            ? 'Converting to SOL...' 
+            : offerFormattedSol}
         </div>
       </div>
 

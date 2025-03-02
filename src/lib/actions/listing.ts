@@ -22,7 +22,7 @@ export const getUserListings = cache(async (userId: string): Promise<Listing[]> 
             avatar: true
           }
         },
-        images: {
+        media: {
           orderBy: {
             order: 'asc'
           },
@@ -31,9 +31,9 @@ export const getUserListings = cache(async (userId: string): Promise<Listing[]> 
       }
     });
 
-    return listings.map((listing: Listing & { images: { url: string }[] }) => ({
+    return listings.map((listing: Listing & { media: { url: string | null }[] }) => ({
       ...listing,
-      primaryImage: listing.images[0]?.url || null
+      primaryImage: listing.media[0]?.url || null
     }));
   } catch (error) {
     console.error('Error fetching user listings:', error);

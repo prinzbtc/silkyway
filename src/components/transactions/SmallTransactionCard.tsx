@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
-import { formatPrice, formatSOL, getSolPrice } from '@/lib/price';
+import { formatPrice, formatSOL, getSolPrice, type Currency } from '@/lib/price';
 import { cn } from '@/lib/utils';
 
 import { Transaction } from '@/types/transaction';
@@ -30,8 +30,11 @@ export function SmallTransactionCard({
 
   useEffect(() => {
     const updatePrice = async () => {
-      const price = await getSolPrice(preferredCurrency);
-      setSolPrice(price);
+      // Make sure we're not passing 'SOL' to getSolPrice
+      if (preferredCurrency !== 'SOL') {
+        const price = await getSolPrice(preferredCurrency as Exclude<Currency, 'SOL'>);
+        setSolPrice(price);
+      }
     };
 
     updatePrice();
@@ -57,7 +60,7 @@ export function SmallTransactionCard({
             compact ? 'h-16 w-16' : 'h-20 w-20'
           )}>
             <Image
-              src={transaction.listing.images[0]}
+              src={transaction.listing.media[0]?.url || '/placeholder-image.jpg'}
               alt={transaction.listing.title}
               fill
               className="rounded-md object-cover"

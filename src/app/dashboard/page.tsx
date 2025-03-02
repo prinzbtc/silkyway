@@ -5,6 +5,7 @@ import { ActiveListings } from './ActiveListings';
 import { LatestTransactions } from './LatestTransactions';
 import FavoriteListings from './FavoriteListings';
 import { TransactionSummary } from './TransactionSummary';
+import { RefreshCacheButton } from './RefreshCacheButton';
 
 export default async function DashboardPage() {
   console.log('Dashboard page - session retrieval started');
@@ -38,9 +39,14 @@ export default async function DashboardPage() {
           <div className="lg:col-span-2 space-y-8">
             {/* Active Listings */}
             <section>
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                Active Listings
-              </h2>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Active Listings
+                </h2>
+                <div className="flex items-center">
+                  {/* Client component will be added in the ActiveListings component */}
+                </div>
+              </div>
               <ActiveListings userId={session.user.id} />
             </section>
 

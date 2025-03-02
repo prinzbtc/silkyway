@@ -25,18 +25,65 @@ export const getCacheKey = {
   recommendedListings: (userId: string, limit: number, cursor?: string) =>
     `listings:recommended:${userId}:${limit}${cursor ? `:${cursor}` : ''}`,
   userFavorites: (userId: string) => `user:${userId}:favorites`,
+  userListings: (userId: string, limit: number, cursor?: string) =>
+    `listings:user:${userId}:${limit}${cursor ? `:${cursor}` : ''}`,
+  filteredListings: (filters: Record<string, any>, limit: number, cursor?: string) => {
+    // Create a stable string representation of the filters
+    const filterKeys = Object.keys(filters).sort();
+    const filterString = filterKeys
+      .map(key => `${key}:${JSON.stringify(filters[key])}`)
+      .join('_');
+    
+    return `listings:filtered:${filterString}:${limit}${cursor ? `:${cursor}` : ''}`;
+  },
 };
 
 // Invalidate cache for specific listing types
 export async function invalidateListingsCache(type?: 'featured' | 'latest' | 'all') {
-  const keys = await redis.keys('listings:*');
-  
-  const keysToDelete = type
-    ? keys.filter(key => key.startsWith(`listings:${type}`))
-    : keys;
-  
-  if (keysToDelete.length > 0) {
-    await redis.del(...keysToDelete);
+  try {
+    console.log(`Invalidating cache for listing type: ${type || 'all'}`);
+    
+    // Get all listing-related keys
+    const keys = await redis.keys('listings:*');
+    console.log(`Found ${keys.length} listing cache keys`);
+    
+    // Filter keys based on type
+    const keysToDelete = type && type !== 'all'
+      ? keys.filter(key => key.startsWith(`listings:${type}`))
+      : keys;
+    
+    if (keysToDelete.length > 0) {
+      console.log(`Deleting ${keysToDelete.length} cache keys: ${keysToDelete.join(', ')}`);
+      await redis.del(...keysToDelete);
+      console.log('Cache keys deleted successfully');
+    } else {
+      console.log('No cache keys to delete');
+    }
+    
+    // Also invalidate filtered listings caches
+    const filteredKeys = await redis.keys('listings:filtered:*');
+    if (filteredKeys.length > 0) {
+      console.log(`Deleting ${filteredKeys.length} filtered listing cache keys`);
+      await redis.del(...filteredKeys);
+    }
+    
+    // Also invalidate user listings caches
+    const userListingsKeys = await redis.keys('*user*listings*');
+    if (userListingsKeys.length > 0) {
+      console.log(`Deleting ${userListingsKeys.length} user listings cache keys`);
+      await redis.del(...userListingsKeys);
+    }
+    
+    // Also invalidate dashboard caches when invalidating all or latest listings
+    if (type === 'all' || type === 'latest' || !type) {
+      const dashboardKeys = await redis.keys('dashboard:*');
+      if (dashboardKeys.length > 0) {
+        console.log(`Also deleting ${dashboardKeys.length} dashboard cache keys`);
+        await redis.del(...dashboardKeys);
+      }
+    }
+  } catch (error) {
+    console.error('Error invalidating listing caches:', error);
   }
 }
 

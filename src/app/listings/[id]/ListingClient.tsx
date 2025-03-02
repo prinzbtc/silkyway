@@ -11,10 +11,10 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
-import { useConvertedPrice } from '@/hooks/price/useConvertedPrice';
-import { formatPrice } from '@/lib/price';
-import { ImageCarousel } from '@/components/listings/ImageCarousel';
+import { usePrice } from '@/hooks/usePrice';
+import { type Currency, normalizeCurrency } from '@/lib/price';
+import { MediaCarousel } from '@/components/listings/MediaCarousel';
+import { MediaFile, MediaType } from '@/types/media';
 import { ConnectButton } from '@/components/wallet/ConnectButton';
 import { cn, formatDate } from '@/lib/utils';
 import { categories } from '@/lib/categories';
@@ -29,10 +29,12 @@ interface ListingType {
   title: string;
   description: string;
   price: number;
+  currency?: Currency;
   category: string;
   brand?: string;
   condition: string;
-  images: { id: string; url: string }[];
+  media: MediaFile[];
+  images?: any[]; // For backward compatibility
   createdAt: string;
   user: {
     id: string;
@@ -56,35 +58,107 @@ function ListingClient({
   const router = useRouter();
   const { publicKey } = useWallet();
   const { toast } = useToast();
-  const { preferredCurrency } = useCurrencyPreference();
   const [listing, setListing] = useState<ListingType | null>(initialListing);
-  const { convertedAmount: fiatAmount } = useConvertedPrice(listing?.price || 0);
+  // Ensure currency is properly typed as Currency and use the actual listing currency
+  // This is critical - we must use the currency that was stored with the listing
+  // Use normalizeCurrency to ensure proper currency handling regardless of input type
+  const listingCurrency = normalizeCurrency(listing?.currency);
+  
+  // Debug the currency value
+  console.log('ListingClient - Original currency:', listing?.currency, 'Normalized currency:', listingCurrency);
+  console.log('ListingClient - Currency type check:', typeof listing?.currency, 'Is null?', listing?.currency === null, 'Is undefined?', listing?.currency === undefined);
+  
+  // Use the consolidated price hook
+  // IMPORTANT: We must directly pass the currency from the listing to ensure proper conversion
+  const { 
+    originalAmount,
+    originalCurrency,
+    preferredAmount: fiatAmount,
+    preferredCurrency,
+    solAmount,
+    isPreferredLoading,
+    isSolLoading: solConversionLoading,
+    formattedOriginal,
+    formattedPreferred,
+    formattedSol,
+    showConverted
+  } = usePrice(listing?.price || 0, listingCurrency);
+  
+  // For backward compatibility
+  const fiatConversionLoading = isPreferredLoading;
   const [isLoading, setIsLoading] = useState(!initialListing);
   const [error, setError] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
+  const [mediaDimensions, setMediaDimensions] = useState<{ width: number; height: number } | null>(null);
 
   // Use the useFavorite hook
   const { isFavorited, isLoading: isFavoriteLoading, toggleFavorite } = useFavorite(listingId);
+  
+  // Reset media dimensions when the modal is closed
+  useEffect(() => {
+    if (!showImageModal) {
+      setMediaDimensions(null);
+    }
+  }, [showImageModal]);
 
   useEffect(() => {
     const fetchListing = async () => {
       try {
         const response = await fetch(`/api/listings/${listingId}`);
         if (!response.ok) {
+          // Handle 404 specifically
+          if (response.status === 404) {
+            setError('Listing not found');
+            setListing(null);
+            return;
+          }
           throw new Error('Failed to fetch listing');
         }
+        
+        // Check if response is valid JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Invalid response format');
+        }
+        
         const data = await response.json();
+        
+        // Validate that we have a proper listing object
+        if (!data || !data.id) {
+          throw new Error('Invalid listing data');
+        }
+        
+        // Debug: Log the raw media data from the API
+        console.log('Raw listing data from API:', {
+          id: data.id,
+          title: data.title,
+          mediaCount: data.media?.length || 0,
+          rawMedia: data.media?.map((m: any) => ({
+            id: m.id,
+            type: m.type,
+            url: m.url,
+            thumbnail: m.thumbnail
+          }))
+        });
+        
         setListing(data);
       } catch (err) {
+        console.error('Error fetching listing:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
+        setListing(null);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchListing();
-  }, [listingId]);
+    // Only fetch if we don't already have the listing
+    if (!initialListing) {
+      fetchListing();
+    } else {
+      setIsLoading(false);
+    }
+  }, [listingId, initialListing]);
 
   const handleFavorite = async () => {
     if (!publicKey) {
@@ -187,18 +261,40 @@ function ListingClient({
 
   const isOwner = session?.user?.id === listing.user.id;
 
+  // Convert legacy images format to media format if needed
+  const listingMedia = listing.media || (listing.images ? 
+    listing.images.map((img: any, index: number) => ({
+      id: img.id,
+      url: img.url,
+      filename: `image-${index}.jpg`,
+      type: MediaType.IMAGE,
+      order: index,
+      isMain: index === 0,
+      thumbnail: img.thumbnail // Include thumbnail URL if available
+    })) : []);
+    
+  // Debug: Log media items to check thumbnail URLs
+  console.log('Listing media items:', listingMedia.map(item => ({
+    id: item.id,
+    type: item.type,
+    url: item.url,
+    thumbnail: item.thumbnail
+  })));
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Images */}
+          {/* Media */}
           <div>
-            <ImageCarousel
-              images={listing.images}
-              onImageClick={(index) => {
-                setSelectedImageIndex(index);
+            <MediaCarousel
+              media={listingMedia}
+              onMediaClick={(index) => {
+                setSelectedMediaIndex(index);
+                setMediaDimensions(null); // Reset dimensions when changing media
                 setShowImageModal(true);
               }}
+              autoplayVideos={false}
             />
           </div>
 
@@ -261,11 +357,23 @@ function ListingClient({
 
             <div className="border-t border-gray-200 pt-6">
               <div>
+                {/* Main price display - always show in user's preferred currency */}
                 <p className="text-3xl font-bold text-gray-900">
-                  {listing.price.toFixed(6)} SOL
+                  {originalCurrency.toUpperCase() === preferredCurrency.toUpperCase()
+                    ? formattedOriginal
+                    : isPreferredLoading
+                      ? <span>{formattedOriginal} <span className="text-lg font-normal text-gray-500">(converting...)</span></span>
+                      : formattedPreferred
+                  }
                 </p>
+                
+                {/* SOL equivalent */}
                 <p className="mt-1 text-sm text-gray-500">
-                  ≈ {formatPrice(fiatAmount || 0, preferredCurrency)}
+                  {solConversionLoading 
+                    ? 'Converting to SOL...' 
+                    : solAmount !== null 
+                      ? formattedSol 
+                      : 'SOL price unavailable'}
                 </p>
               </div>
             </div>
@@ -352,36 +460,89 @@ function ListingClient({
         </div>
       </div>
 
-      {/* Image Modal */}
-      {showImageModal && (
-        <div 
-          className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center"
-          onClick={() => setShowImageModal(false)}
+      {/* Media Modal */}
+      <Dialog open={showImageModal} onOpenChange={setShowImageModal}>
+        <DialogContent 
+          className="max-w-[90vw] w-auto p-0 bg-black overflow-hidden"
+          style={{
+            // Adjust dialog size based on content dimensions
+            maxHeight: '90vh',
+            height: 'auto',
+            width: 'auto',
+            // Set a reasonable aspect ratio based on the media dimensions
+            ...(mediaDimensions && {
+              aspectRatio: `${mediaDimensions.width} / ${mediaDimensions.height}`
+            })
+          }}
         >
-          <div 
-            className="relative w-full h-full max-w-7xl mx-auto p-4"
-            onClick={e => e.stopPropagation()}
-          >
-            <Button
-              variant="ghost"
-              className="absolute top-4 right-4 text-white z-50"
-              onClick={() => setShowImageModal(false)}
-            >
-              Close
-            </Button>
-            <div className="h-full flex items-center justify-center">
-              <Image
-                src={listing.images[selectedImageIndex].url}
-                alt={`Image ${selectedImageIndex + 1}`}
-                width={1200}
-                height={800}
-                className="max-h-[90vh] w-auto h-auto object-contain"
-                priority={selectedImageIndex === 0}
-              />
-            </div>
+          <DialogHeader className="sr-only">
+            <DialogTitle>
+              {listing.title} - Media {selectedMediaIndex + 1}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="relative w-full h-full flex items-center justify-center">
+            {listingMedia[selectedMediaIndex]?.type === MediaType.VIDEO ? (
+              <div className="relative flex items-center justify-center">
+                <video
+                  src={listingMedia[selectedMediaIndex]?.url}
+                  poster={listingMedia[selectedMediaIndex]?.thumbnail}
+                  className="max-w-full max-h-[85vh] w-auto h-auto object-contain"
+                  controls
+                  autoPlay
+                  playsInline
+                  onLoadedMetadata={(e) => {
+                    // Set video dimensions for dialog sizing
+                    const width = e.currentTarget.videoWidth;
+                    const height = e.currentTarget.videoHeight;
+                    console.log('Video dimensions:', { width, height });
+                    setMediaDimensions({ width, height });
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="relative w-full h-full max-h-[85vh] flex items-center justify-center">
+                <Image
+                  src={listingMedia[selectedMediaIndex]?.url || ''}
+                  alt={`${listing.title} - Image ${selectedMediaIndex + 1}`}
+                  className="max-w-full max-h-[85vh] object-contain"
+                  width={1200}
+                  height={800}
+                  onLoad={(e) => {
+                    // Get natural dimensions of the image
+                    const img = e.currentTarget;
+                    if (img.naturalWidth && img.naturalHeight) {
+                      console.log('Image dimensions:', { 
+                        width: img.naturalWidth, 
+                        height: img.naturalHeight 
+                      });
+                      setMediaDimensions({
+                        width: img.naturalWidth,
+                        height: img.naturalHeight
+                      });
+                    }
+                  }}
+                  style={{
+                    width: 'auto',
+                    height: 'auto',
+                    maxWidth: '100%',
+                    maxHeight: '85vh'
+                  }}
+                />
+              </div>
+            )}
           </div>
-        </div>
-      )}
+          
+          <Button
+            className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white z-10"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowImageModal(false)}
+          >
+            Close
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

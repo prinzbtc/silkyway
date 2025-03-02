@@ -22,9 +22,9 @@ export const CurrencySelector: FC = () => {
   }, []);
 
   const options = [
-    { value: 'USD', label: 'SOL-USD' },
-    { value: 'EUR', label: 'SOL-EUR' },
-    { value: 'GBP', label: 'SOL-GBP' },
+    { value: 'USD', label: 'USD' },
+    { value: 'EUR', label: 'EUR' },
+    { value: 'GBP', label: 'GBP' },
   ] as const;
 
   return (

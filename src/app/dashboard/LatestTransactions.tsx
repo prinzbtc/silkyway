@@ -76,7 +76,7 @@ export const LatestTransactions: FC<LatestTransactionsProps> = ({ userId }) => {
               className="block h-12 w-12 rounded-lg overflow-hidden bg-gray-100"
             >
               <img
-                src={transaction.listing.images[0]}
+                src={transaction.listing.media?.[0]?.url || '/placeholder-image.jpg'}
                 alt={transaction.listing.title}
                 className="h-full w-full object-cover"
               />

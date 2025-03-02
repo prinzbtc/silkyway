@@ -1,0 +1,45 @@
+Currently, we use ListingImage as a model in schema.prisma.
+
+I'd like to rename it as ListingMedia, because I want to allow users to add videos to a listing as well as images.
+
+1. We'd then need to modify :
+
+- silkyway/src/types/listing.ts
+- silkyway/src/lib/uploads.ts
+- silkyway/src/app/api/[type]/files/[filename]/route.ts
+
+After that, we'll need to replace ImageUploader.tsx with MediaUploader.tsx and modify it so it can handle :
+
+- images (up to 7 files per listing, 3MB each)
+- videos (up to 1 file per listing, 70MB each)
+
+2. This means that :
+
+- MediaUploader would display a preview of the first frame of the video as a JavaScript file object.
+- MediaUploader would display a progress bar under each preview
+- Users should be able to set any type of media as main media, whether image or video
+- Uploads.ts would :
+	- Store temp media files in silkyway/public/uploads/temp with a temp filename
+	- Immediately start images and video compression (hence the progress bar in MediaUploader) using ffmpeg (images and videos need to be compressed 15 times their original weight but must always retain the original orientation) 
+	- then store compressed listing images and videos in silkyway/public/uploads/listings with a permanent filename
+	- does not delete the original temp files since we need them for the previews in MediaUploader until the user actually publishes the listing
+- Upon publishing, the API would trigger the deletion of the original temp files
+- If user leaves the create listing page or cancels the listing before publication, the API would also trigger the deletion of the temp files and of the perm files if they were already compressed and stored in the uploads/listings folder
+
+3. We'd then need to modify :
+
+- silkyway/src/app/api/upload/listing/route.ts
+- silkyway/src/app/(routes)/create/page.tsx
+
+4. Then we'd need to modify listing related components :
+
+- ImageCarousel (needs to be replaced with MediaCarousel)
+- ListingClient (integrate a video player in the media viewer)
+- ListingCards (should be able to display a 5-seconds muted video preview)
+- SmallListingCards (should be able to display a 5-seconds muted video preview)
+
+5. Then we'd need to modify :
+
+- EditListingForm
+- silkyway/src/app/api/upload/route.ts
+

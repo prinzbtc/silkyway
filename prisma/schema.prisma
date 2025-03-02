@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,100 +8,97 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  walletAddress String    @unique
-  username      String?   @unique
-  avatar        String?
-  bio           String?
-  email         String?   @unique
-  location      String?
-  lastLoginAt   DateTime?
-  adminRole     String?   // super_admin, admin, moderator
-  adminSince    DateTime?
-  adminPermissions Json?   // Array of permission strings
-  notificationPreferences Json?
-  // Social connections
-  twitterHandle String?   @unique
-  twitterVerifiedAt DateTime?
-  // Stats
-  completedTransactionCount Int @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
-
-  // Relationships
-  listings      Listing[]
-  buyerTransactions Transaction[] @relation("TransactionBuyer")
-  sellerTransactions Transaction[] @relation("TransactionSeller")
-  reviews       Review[]  @relation("ReviewAuthor")
-  receivedReviews Review[] @relation("ReviewReceiver")
-  favorites     Favorite[]
-  sentMessages   Message[] @relation("MessageSender")
-  receivedMessages Message[] @relation("MessageReceiver")
-  buyerConversations Conversation[] @relation("ConversationBuyer")
-  sellerConversations Conversation[] @relation("ConversationSeller")
-  offers        Offer[]   @relation("OfferSender")
-  receivedOffers Offer[]  @relation("OfferReceiver")
-  submittedReports Report[] @relation("ReportSubmitter")
-  notifications Notification[]
-  brands        Brand[]
+  id                        String         @id @default(cuid())
+  walletAddress             String         @unique
+  username                  String?        @unique
+  avatar                    String?
+  bio                       String?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  deletedAt                 DateTime?
+  adminRole                 String?
+  adminSince                DateTime?
+  email                     String?        @unique
+  lastLoginAt               DateTime?
+  location                  String?
+  notificationPreferences   Json?
+  completedTransactionCount Int            @default(0)
+  twitterHandle             String?        @unique
+  twitterVerifiedAt         DateTime?
+  adminPermissions          Json?
+  brands                    Brand[]
+  buyerConversations        Conversation[] @relation("ConversationBuyer")
+  sellerConversations       Conversation[] @relation("ConversationSeller")
+  favorites                 Favorite[]
+  listings                  Listing[]
+  ListingMedia              ListingMedia[]
+  receivedMessages          Message[]      @relation("MessageReceiver")
+  sentMessages              Message[]      @relation("MessageSender")
+  notifications             Notification[]
+  receivedOffers            Offer[]        @relation("OfferReceiver")
+  offers                    Offer[]        @relation("OfferSender")
+  submittedReports          Report[]       @relation("ReportSubmitter")
+  reviews                   Review[]       @relation("ReviewAuthor")
+  receivedReviews           Review[]       @relation("ReviewReceiver")
+  buyerTransactions         Transaction[]  @relation("TransactionBuyer")
+  sellerTransactions        Transaction[]  @relation("TransactionSeller")
 }
 
 model Listing {
-  id          String    @id @default(cuid())
-  title       String
-  description String
-  price       Float
-  category    String
-  condition   String
-  brand       String?
-  featured    Boolean   @default(false)
-  status      String    @default("active") // active, sold, deleted
-  
-  // Replace separate delivery boolean fields with a JSON field
-  deliveryOptions Json @default("{\"noDelivery\": false, \"handDelivery\": false, \"postalService\": false, \"deliveryPrice\": 0}")
-  
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  // Relationships
-  userId      String
-  user        User      @relation(fields: [userId], references: [id])
-  
-  // Replace images array with a relation to ListingImage
-  images      ListingImage[]
-  
-  favorites   Favorite[]
-  offers      Offer[]
-  reports     Report[]
-  transactions Transaction[]
+  id              String         @id @default(cuid())
+  title           String
+  description     String
+  price           Float
+  category        String
+  condition       String
+  status          String         @default("active")
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  userId          String
+  brand           String?
+  featured        Boolean        @default(false)
+  deliveryOptions Json           @default("{\"noDelivery\": false, \"handDelivery\": false, \"deliveryPrice\": 0, \"postalService\": false}")
+  currency        Currency       @default(USD)
+  favorites       Favorite[]
+  user            User           @relation(fields: [userId], references: [id])
+  media           ListingMedia[]
+  offers          Offer[]
+  reports         Report[]
+  transactions    Transaction[]
 
   @@index([userId])
 }
 
-model ListingImage {
-  id        String   @id @default(cuid())
-  url       String   // Path to the image in /public/uploads/listing/
-  filename  String   // Original filename
-  order     Int      @default(0) // To maintain image order
-  createdAt DateTime @default(now())
-
-  // Relationship
-  listingId String
-  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+model ListingMedia {
+  id               String   @id @default(cuid())
+  url              String?
+  type             String
+  filename         String
+  order            Int      @default(0)
+  duration         Int?
+  thumbnail        String?
+  createdAt        DateTime @default(now())
+  listingId        String?
+  originalFilename String
+  isMainMedia      Boolean  @default(false)
+  processingError  String?
+  status           String   @default("PENDING")
+  updatedAt        DateTime
+  userId           String
+  listing          Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  User             User     @relation(fields: [userId], references: [id])
 
   @@index([listingId])
+  @@index([userId])
 }
 
 model Favorite {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
-
-  // Relationships
   userId    String
-  user      User    @relation(fields: [userId], references: [id])
   listingId String
-  listing   Listing @relation(fields: [listingId], references: [id])
+  listing   Listing  @relation(fields: [listingId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, listingId])
   @@index([userId])
@@ -115,15 +106,13 @@ model Favorite {
 }
 
 model Conversation {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   buyerId   String
-  buyer     User     @relation("ConversationBuyer", fields: [buyerId], references: [id])
   sellerId  String
-  seller    User     @relation("ConversationSeller", fields: [sellerId], references: [id])
+  buyer     User      @relation("ConversationBuyer", fields: [buyerId], references: [id])
+  seller    User      @relation("ConversationSeller", fields: [sellerId], references: [id])
   messages  Message[]
 
   @@index([buyerId])
@@ -131,21 +120,19 @@ model Conversation {
 }
 
 model Message {
-  id        String   @id @default(cuid())
-  content   String
-  createdAt DateTime @default(now())
-  read      Boolean  @default(false)
-  type      String?  // transaction_notification, etc.
-  metadata  Json?    // Additional data for specific message types
-  attachments Json?  // Array of {url: string, type: string, size: number}
-
-  // Relationships
-  senderId    String
-  sender      User    @relation("MessageSender", fields: [senderId], references: [id])
-  receiverId  String
-  receiver    User    @relation("MessageReceiver", fields: [receiverId], references: [id])
+  id             String       @id @default(cuid())
+  content        String
+  createdAt      DateTime     @default(now())
+  read           Boolean      @default(false)
+  senderId       String
+  receiverId     String
+  attachments    Json?
   conversationId String
-  conversation Conversation @relation(fields: [conversationId], references: [id])
+  metadata       Json?
+  type           String?
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  receiver       User         @relation("MessageReceiver", fields: [receiverId], references: [id])
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id])
 
   @@index([senderId])
   @@index([receiverId])
@@ -153,19 +140,17 @@ model Message {
 }
 
 model Offer {
-  id        String   @id @default(cuid())
-  amount    Float
-  status    String   @default("pending") // pending, accepted, rejected, expired
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
+  id          String       @id @default(cuid())
+  amount      Float
+  status      String       @default("pending")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   senderId    String
-  sender      User    @relation("OfferSender", fields: [senderId], references: [id])
   receiverId  String
-  receiver    User    @relation("OfferReceiver", fields: [receiverId], references: [id])
   listingId   String
-  listing     Listing @relation(fields: [listingId], references: [id])
+  listing     Listing      @relation(fields: [listingId], references: [id])
+  receiver    User         @relation("OfferReceiver", fields: [receiverId], references: [id])
+  sender      User         @relation("OfferSender", fields: [senderId], references: [id])
   transaction Transaction?
 
   @@index([senderId])
@@ -174,17 +159,15 @@ model Offer {
 }
 
 model Review {
-  id        String   @id @default(cuid())
-  rating    Int
-  comment   String?
-  createdAt DateTime @default(now())
-
-  // Relationships
-  authorId    String
-  author      User    @relation("ReviewAuthor", fields: [authorId], references: [id])
-  receiverId  String
-  receiver    User    @relation("ReviewReceiver", fields: [receiverId], references: [id])
-  transactionId String   @unique
+  id            String      @id @default(cuid())
+  rating        Int
+  comment       String?
+  createdAt     DateTime    @default(now())
+  authorId      String
+  receiverId    String
+  transactionId String      @unique
+  author        User        @relation("ReviewAuthor", fields: [authorId], references: [id])
+  receiver      User        @relation("ReviewReceiver", fields: [receiverId], references: [id])
   transaction   Transaction @relation(fields: [transactionId], references: [id])
 
   @@unique([authorId, transactionId])
@@ -195,14 +178,12 @@ model Review {
 
 model Notification {
   id        String   @id @default(cuid())
-  type      String   // message, offer, review, etc.
+  type      String
   title     String
   content   String
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  // Relationships
   userId    String
   user      User     @relation(fields: [userId], references: [id])
 
@@ -211,65 +192,55 @@ model Notification {
 
 model Report {
   id          String   @id @default(cuid())
-  type        String   // listing, user
   reason      String
-  description String?
-  status      String   @default("pending") // pending, reviewed, resolved, dismissed
-  attachments Json?    // Array of {url: string, type: string, size: number}
+  status      String   @default("pending")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  // Relationships
   reporterId  String
-  reporter    User    @relation("ReportSubmitter", fields: [reporterId], references: [id])
   listingId   String
-  listing     Listing @relation(fields: [listingId], references: [id])
+  attachments Json?
+  description String?
+  type        String
+  listing     Listing  @relation(fields: [listingId], references: [id])
+  reporter    User     @relation("ReportSubmitter", fields: [reporterId], references: [id])
 
   @@index([reporterId])
   @@index([listingId])
 }
 
 model Escrow {
-  id            String   @id @default(cuid())
-  address       String   @unique
+  id            String      @id @default(cuid())
+  address       String      @unique
   amount        Float
-  status        String   @default("pending") // pending, completed, cancelled, refunded
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relationships
-  transactionId String   @unique
+  status        String      @default("pending")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  transactionId String      @unique
   transaction   Transaction @relation(fields: [transactionId], references: [id])
 
   @@index([transactionId])
 }
 
 model Transaction {
-  id            String   @id @default(cuid())
-  amount        Float
-  protectionFee Float?
-  shippingFee  Float?
-  status        String   @default("pending") // pending, completed, cancelled, refunded
+  id             String   @id @default(cuid())
+  amount         Float
+  status         String   @default("pending")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  listingId      String
+  offerId        String   @unique
   trackingNumber String?
-  signature     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Escrow relationship
-  escrow        Escrow?
-
-  // Relationships
-  listingId     String
-  listing       Listing  @relation(fields: [listingId], references: [id])
-  offerId       String   @unique
-  offer         Offer    @relation(fields: [offerId], references: [id])
-  review        Review?
-  
-  // Buyer and seller relations
-  buyerId       String
-  buyer         User     @relation("TransactionBuyer", fields: [buyerId], references: [id])
-  sellerId      String
-  seller        User     @relation("TransactionSeller", fields: [sellerId], references: [id])
+  protectionFee  Float?
+  shippingFee    Float?
+  signature      String?
+  buyerId        String
+  sellerId       String
+  escrow         Escrow?
+  review         Review?
+  buyer          User     @relation("TransactionBuyer", fields: [buyerId], references: [id])
+  listing        Listing  @relation(fields: [listingId], references: [id])
+  offer          Offer    @relation(fields: [offerId], references: [id])
+  seller         User     @relation("TransactionSeller", fields: [sellerId], references: [id])
 
   @@index([listingId])
   @@index([offerId])
@@ -280,13 +251,16 @@ model Brand {
   name      String
   category  String
   createdAt DateTime @default(now())
-  
-  // Optional: Track who added the brand
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])
-  
-  // Ensure unique brands per category
+
   @@unique([name, category])
   @@index([category])
   @@index([userId])
+}
+
+enum Currency {
+  USD
+  EUR
+  GBP
 }

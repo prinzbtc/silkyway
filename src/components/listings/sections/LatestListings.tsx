@@ -1,15 +1,24 @@
 'use client';
 
-import { FC } from 'react';
+import { FC, useState, useEffect } from 'react';
 import { useListings } from '@/hooks/listing/useListings';
 import { ListingGrid } from '../ListingGrid';
 import { ListingGridSkeleton } from '../ListingGridSkeleton';
 
 export const LatestListings: FC = () => {
+  // Use state to force refresh
+  const [refreshKey, setRefreshKey] = useState(Date.now());
+  
+  // Force refresh when component mounts
+  useEffect(() => {
+    console.log('LatestListings component mounted, forcing refresh');
+    setRefreshKey(Date.now());
+  }, []);
+  
   const { listings, isLoading, error } = useListings({
     type: 'latest',
     limit: 8,
-  });
+  }, [refreshKey]);
 
   if (error) {
     return (
@@ -31,5 +40,10 @@ export const LatestListings: FC = () => {
     );
   }
 
-  return <ListingGrid listings={listings} />;
+  return (
+    <div>
+      <h2 className="text-2xl font-bold tracking-tight mb-6">Latest Listings</h2>
+      <ListingGrid listings={listings} />
+    </div>
+  );
 };

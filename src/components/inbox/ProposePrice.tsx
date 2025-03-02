@@ -25,7 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
-import { formatPrice, formatSOL, getSolPrice } from '@/lib/price';
+import { formatPrice, formatSOL, getSolPrice, type Currency } from '@/lib/price';
 
 const formSchema = z.object({
   amount: z.number().positive('Amount must be greater than 0'),
@@ -58,8 +58,11 @@ export default function ProposePrice({
 
   useEffect(() => {
     const updatePrice = async () => {
-      const price = await getSolPrice(preferredCurrency);
-      setSolPrice(price);
+      // Make sure we're not passing 'SOL' to getSolPrice
+      if (preferredCurrency !== 'SOL') {
+        const price = await getSolPrice(preferredCurrency as Exclude<Currency, 'SOL'>);
+        setSolPrice(price);
+      }
     };
 
     updatePrice();

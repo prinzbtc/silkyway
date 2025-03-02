@@ -3,11 +3,9 @@
 import { createContext, useContext, useState, useEffect, FC, ReactNode } from 'react';
 import { Currency } from '@/lib/price';
 
-type FiatCurrency = Exclude<Currency, 'SOL'>;
-
 interface CurrencyPreferenceContextType {
-  preferredCurrency: FiatCurrency;
-  setPreferredCurrency: (currency: FiatCurrency) => void;
+  preferredCurrency: Currency;
+  setPreferredCurrency: (currency: Currency) => void;
 }
 
 const CurrencyPreferenceContext = createContext<CurrencyPreferenceContextType | undefined>(undefined);
@@ -17,17 +15,24 @@ interface CurrencyPreferenceProviderProps {
 }
 
 export const CurrencyPreferenceProvider: FC<CurrencyPreferenceProviderProps> = ({ children }) => {
-  const [preferredCurrency, setPreferredCurrency] = useState<FiatCurrency>('USD');
+  const [preferredCurrency, setPreferredCurrency] = useState<Currency>('USD');
 
   useEffect(() => {
     // Load preference from localStorage
-    const savedPreference = localStorage.getItem('preferredCurrency') as FiatCurrency | null;
+    const savedPreference = localStorage.getItem('preferredCurrency') as Currency | null;
+    
+    // Only accept USD, EUR, GBP as valid currencies
+    // If SOL was previously selected, default to USD
     if (savedPreference && ['USD', 'EUR', 'GBP'].includes(savedPreference)) {
       setPreferredCurrency(savedPreference);
+    } else if (savedPreference === 'SOL') {
+      // If SOL was previously selected, reset to USD
+      setPreferredCurrency('USD');
+      localStorage.setItem('preferredCurrency', 'USD');
     }
   }, []);
 
-  const updatePreferredCurrency = (currency: FiatCurrency) => {
+  const updatePreferredCurrency = (currency: Currency) => {
     setPreferredCurrency(currency);
     localStorage.setItem('preferredCurrency', currency);
   };

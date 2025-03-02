@@ -3,63 +3,216 @@ import { getSession } from '@/lib/auth/session';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { UPLOAD_CONFIG } from '@/config/upload';
+import { saveTempFile } from '@/lib/uploads';
+import { MediaType } from '@/types/media';
 
-const UPLOAD_DIR = path.join(process.cwd(), 'private', 'uploads', 'reports');
+// Create temp upload directory for general uploads
+const TEMP_UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'temp');
+mkdir(TEMP_UPLOAD_DIR, { recursive: true }).catch(console.error);
 
-// Ensure upload directory exists
-mkdir(UPLOAD_DIR, { recursive: true }).catch(console.error);
-
-const ALLOWED_FILE_TYPES = [
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/gif',
-  'application/pdf',
-];
-
-const MAX_FILE_SIZE = 3 * 1024 * 1024; // 3MB
+// Create reports upload directory
+const REPORTS_UPLOAD_DIR = path.join(process.cwd(), 'private', 'uploads', 'reports');
+mkdir(REPORTS_UPLOAD_DIR, { recursive: true }).catch(console.error);
 
 export async function POST(req: Request) {
+  console.log('Upload API called');
   try {
     // Check authentication
     const session = await getSession();
+    console.log('Session:', { userId: session?.user?.id });
     if (!session?.user?.id) {
+      console.log('Unauthorized: No user session');
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
     const formData = await req.formData();
     const file = formData.get('file') as File;
+    const purpose = formData.get('purpose') as string || 'general';
+    
+    console.log('Upload request received:', { 
+      fileName: file?.name,
+      fileSize: file?.size,
+      purpose,
+      contentType: file?.type
+    });
 
     if (!file) {
+      console.log('Error: No file provided');
       return new NextResponse('No file provided', { status: 400 });
     }
 
-    // Validate file type
-    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-      return new NextResponse('Invalid file type', { status: 400 });
+    // Handle different upload purposes
+    if (purpose === 'report') {
+      return handleReportUpload(file);
+    } else if (purpose === 'listings') {
+      return handleListingMediaUpload(file);
+    } else {
+      return handleGeneralUpload(file);
     }
-
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      return new NextResponse('File too large', { status: 400 });
-    }
-
-    // Generate unique filename
-    const fileExtension = file.name.split('.').pop();
-    const randomName = crypto.randomBytes(16).toString('hex');
-    const filename = `${randomName}.${fileExtension}`;
-    const filepath = path.join(UPLOAD_DIR, filename);
-
-    // Convert file to buffer and save it
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(filepath, buffer);
-
-    // Return the private file path (will be served through a secure endpoint)
-    const url = `/api/reports/files/${filename}`;
-
-    return NextResponse.json({ url });
   } catch (error) {
-    console.error('Error uploading file:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    console.error('Error in main upload handler:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    return new NextResponse(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`, { status: 500 });
+  }
+}
+
+async function handleReportUpload(file: File) {
+  // Validate file type for reports - use IMAGE types for now
+  if (!UPLOAD_CONFIG.IMAGE.ALLOWED_TYPES.includes(file.type)) {
+    return new NextResponse('Invalid file type', { status: 400 });
+  }
+
+  // Validate file size for reports - use IMAGE max size
+  if (file.size > UPLOAD_CONFIG.IMAGE.MAX_SIZE_MB * 1024 * 1024) {
+    return new NextResponse('File too large', { status: 400 });
+  }
+
+  // Generate unique filename
+  const fileExtension = file.name.split('.').pop();
+  const randomName = crypto.randomBytes(16).toString('hex');
+  const filename = `${randomName}.${fileExtension}`;
+  const filepath = path.join(REPORTS_UPLOAD_DIR, filename);
+
+  // Convert file to buffer and save it
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await writeFile(filepath, buffer);
+
+  // Return the private file path (will be served through a secure endpoint)
+  const url = `/api/reports/files/${filename}`;
+
+  return NextResponse.json({ url });
+}
+
+async function handleListingMediaUpload(file: File) {
+  console.log('Handling listing media upload:', { 
+    fileName: file.name, 
+    fileType: file.type, 
+    fileSize: file.size, 
+    lastModified: new Date(file.lastModified).toISOString() 
+  });
+  
+  // Validate file exists and has content
+  if (!file || file.size === 0) {
+    console.error('Invalid file: File is empty or undefined');
+    return new NextResponse('Invalid file: File is empty', { status: 400 });
+  }
+  
+  // Determine media type based on file extension and MIME type
+  const fileExtension = file.name.split('.').pop()?.toLowerCase();
+  const isVideo = UPLOAD_CONFIG.VIDEO.ALLOWED_TYPES.includes(file.type) || 
+                 ['mp4', 'mov', 'avi'].includes(fileExtension || '');
+  const isImage = UPLOAD_CONFIG.IMAGE.ALLOWED_TYPES.includes(file.type) || 
+                 ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExtension || '');
+  
+  console.log('Media type check:', { isVideo, isImage, fileExtension, mimeType: file.type });
+  
+  if (!isVideo && !isImage) {
+    console.error('Invalid file type rejected:', { fileType: file.type, extension: fileExtension });
+    return new NextResponse('Invalid file type. Supported types: JPG, PNG, GIF, MP4, MOV', { status: 400 });
+  }
+
+  // Validate file size
+  const maxSize = isVideo 
+    ? UPLOAD_CONFIG.VIDEO.MAX_SIZE_MB * 1024 * 1024
+    : UPLOAD_CONFIG.IMAGE.MAX_SIZE_MB * 1024 * 1024;
+  
+  if (file.size > maxSize) {
+    console.error('File too large:', { 
+      size: file.size, 
+      maxSize, 
+      maxSizeMB: Math.round(maxSize / (1024 * 1024)) 
+    });
+    return new NextResponse(
+      `File too large. Maximum size is ${Math.round(maxSize / (1024 * 1024))}MB`, 
+      { status: 400 }
+    );
+  }
+
+  try {
+    // Ensure we can read the file data before attempting to save
+    console.log('Checking file readability...');
+    try {
+      const testArrayBuffer = await file.slice(0, Math.min(1024, file.size)).arrayBuffer();
+      if (!testArrayBuffer || testArrayBuffer.byteLength === 0) {
+        throw new Error('Could not read file data');
+      }
+      console.log('File data readable, first bytes size:', testArrayBuffer.byteLength);
+    } catch (readError) {
+      console.error('Error reading file data:', readError);
+      return new NextResponse('Could not read file data', { status: 400 });
+    }
+    
+    // Save to temp directory
+    console.log('Saving temp file...');
+    const result = await saveTempFile(file);
+    console.log('Temp file saved:', result);
+    
+    // Verify the file was saved correctly by checking the URL
+    const publicPath = path.join(process.cwd(), 'public', result.url);
+    console.log('Verifying saved file exists at public path:', publicPath);
+    
+    try {
+      const fs = require('fs');
+      const stats = fs.statSync(publicPath);
+      console.log('File verification successful:', { size: stats.size, path: publicPath });
+      
+      if (stats.size === 0) {
+        throw new Error('File was saved but has zero size');
+      }
+    } catch (verifyError) {
+      console.error('File verification failed:', verifyError);
+      // Continue anyway since we already have the file info
+    }
+    
+    // Return temporary file information
+    const response = {
+      success: true,
+      file: {
+        filename: path.basename(result.filepath),
+        url: result.url,  // Use the URL directly from the saveTempFile result
+        type: isVideo ? MediaType.VIDEO : MediaType.IMAGE,
+        size: file.size,
+        thumbnail: result.thumbnail  // Include the thumbnail URL if available
+      }
+    };
+    
+    console.log('Returning successful response:', response);
+    return NextResponse.json(response);
+  } catch (error) {
+    console.error('Error saving temp file in handleListingMediaUpload:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    return new NextResponse(`Failed to save file: ${error instanceof Error ? error.message : 'Unknown error'}`, { status: 500 });
+  }
+}
+
+async function handleGeneralUpload(file: File) {
+  // Validate file type for general uploads
+  if (![...UPLOAD_CONFIG.IMAGE.ALLOWED_TYPES, ...UPLOAD_CONFIG.VIDEO.ALLOWED_TYPES].includes(file.type)) {
+    return new NextResponse('Invalid file type', { status: 400 });
+  }
+
+  // Validate file size - use image size for general uploads
+  if (file.size > UPLOAD_CONFIG.IMAGE.MAX_SIZE_MB * 1024 * 1024) {
+    return new NextResponse('File too large', { status: 400 });
+  }
+
+  try {
+    // Save to temp directory
+    console.log('Saving temp file in handleGeneralUpload...');
+    const result = await saveTempFile(file);
+    const filename = path.basename(result.filepath);
+    console.log('Temp file saved in handleGeneralUpload:', { filename, filepath: result.filepath });
+    
+    // Return temporary file information
+    return NextResponse.json({
+      success: true,
+      url: `/uploads/temp/${filename}`,
+      filename
+    });
+  } catch (error) {
+    console.error('Error saving temp file in handleGeneralUpload:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    return new NextResponse(`Failed to save file: ${error instanceof Error ? error.message : 'Unknown error'}`, { status: 500 });
   }
 }

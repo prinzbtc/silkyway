@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
-import { getSolPrice } from '@/lib/price';
+import { getSolPrice, type Currency } from '@/lib/price';
 import { formatTransactionAmount } from '@/lib/transactions';
 
 interface TransactionSummaryCardProps {
@@ -20,8 +20,11 @@ export default function TransactionSummaryCard({
 
   useEffect(() => {
     const updatePrice = async () => {
-      const price = await getSolPrice(preferredCurrency);
-      setSolPrice(price);
+      // Make sure we're not passing 'SOL' to getSolPrice
+      if (preferredCurrency !== 'SOL') {
+        const price = await getSolPrice(preferredCurrency as Exclude<Currency, 'SOL'>);
+        setSolPrice(price);
+      }
     };
 
     updatePrice();

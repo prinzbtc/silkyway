@@ -25,8 +25,12 @@ const formSchema = z.object({
     .max(500, { message: "Description cannot be longer than 500 characters" }),
   price: z
     .number()
-    .min(0.00001, { message: "Price must be at least 0.00001 SOL" })
-    .max(2000000, { message: "Price cannot exceed 2,000,000 SOL" }),
+    .min(0.00001, { message: "Price must be at least 0.00001" })
+    .max(2000000, { message: "Price cannot exceed 2,000,000" }),
+  currency: z
+    .enum(["USD", "EUR", "GBP"])
+    .optional()
+    .default("USD"),
   noDelivery: z.boolean().optional(),
   handDelivery: z.boolean().optional(),
   postalService: z.boolean().optional(),
@@ -72,13 +76,18 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
           },
         },
         favorites: true,
-        images: {
+        media: {
           orderBy: {
             order: 'asc'
           },
           select: {
             id: true,
-            url: true
+            url: true,
+            type: true,
+            thumbnail: true,
+            filename: true,
+            order: true,
+            isMainMedia: true
           }
         },
       },
@@ -102,7 +111,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const response = {
       ...listing,
-      favoritesCount: listing.favorites.length,
+      favoritesCount: (listing as any).favorites.length,
       isFavorite: !!isFavorite,
       _count: undefined,
     }
@@ -159,8 +168,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       postalService,
       deliveryPrice,
       existingImages,
+      currency: validatedCurrency,
     } = validationResult.data
-
+    
     // Check if the listing belongs to the current user
     const existingListing = await prisma.listing.findUnique({
       where: {
@@ -172,6 +182,12 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (!existingListing) {
       return NextResponse.json({ error: "Listing not found or you do not have permission to edit" }, { status: 404 })
     }
+    
+    // Ensure currency is preserved or set a default
+    const currency = body.currency || existingListing.currency || 'USD'
+    
+    // Use the validated currency or the one we determined from the existing listing
+    const finalCurrency = validatedCurrency || currency
 
     // If a brand is provided, ensure it exists in the database
     if (brand && category) {
@@ -196,6 +212,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         brand,
         description,
         price,
+        currency: finalCurrency,
         condition,
         deliveryOptions: {
           noDelivery: noDelivery || false,
@@ -209,7 +226,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     // Handle image updates if needed
     if (existingImages) {
       // Remove existing images not in the new list
-      await prisma.listingImage.deleteMany({
+      await prisma.listingMedia.deleteMany({
         where: {
           listingId,
           id: {
@@ -232,6 +249,10 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    // Properly resolve params first
+    const resolvedParams = await params;
+    const id = resolvedParams.id;
+    
     const session = await getSession(request)
 
     // Ensure user is authenticated
@@ -242,7 +263,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     // Check if the listing belongs to the current user
     const existingListing = await prisma.listing.findUnique({
       where: {
-        id: await Promise.resolve(params.id),
+        id: id,
         userId: session.user.id,
       },
     })
@@ -250,17 +271,28 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     if (!existingListing) {
       return NextResponse.json({ error: "Listing not found or you do not have permission to delete" }, { status: 404 })
     }
+    
+    // Get media files before deleting the listing to clean up
+    const mediaFiles = await prisma.listingMedia.findMany({
+      where: { listingId: id },
+      select: { url: true, thumbnail: true }
+    });
 
     // Delete the listing
     await prisma.listing.delete({
-      where: { id: await Promise.resolve(params.id) },
+      where: { id: id },
     })
 
     // Invalidate cache for this listing
-    const cacheKey = getCacheKey.listing(await Promise.resolve(params.id))
+    const cacheKey = getCacheKey.listing(id)
     await redis.del(cacheKey)
-
-    return NextResponse.json({ message: "Listing deleted successfully" }, { status: 200 })
+    
+    // Return media files and user ID in the response
+    return NextResponse.json({ 
+      message: "Listing deleted successfully",
+      mediaFiles: mediaFiles,
+      userId: session.user.id
+    }, { status: 200 })
   } catch (error) {
     console.error("Listing deletion error:", error)
     return NextResponse.json({ error: "Failed to delete listing" }, { status: 500 })

@@ -29,7 +29,7 @@ export async function GET(req: Request) {
                 avatar: true
               }
             },
-            images: {
+            media: {
               orderBy: {
                 order: 'asc'
               },

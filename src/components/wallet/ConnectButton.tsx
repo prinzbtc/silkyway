@@ -14,6 +14,11 @@ interface UserProfile {
 
 export const ConnectButton: FC = () => {
   const { publicKey, connected } = useWallet();
+  
+  const truncateAddress = (address: string | null) => {
+    if (!address) return 'Anon';
+    return `${address.substring(0, 5)}...`;
+  };
   const { setVisible } = useWalletModal();
   const { signIn, signOut, isAuthenticating } = useWalletAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -49,9 +54,28 @@ export const ConnectButton: FC = () => {
   const fetchUserProfile = useCallback(async () => {
     try {
       const response = await fetch('/api/user/profile');
+      console.log('Profile API response status:', response.status);
       if (response.ok) {
         const data = await response.json();
-        setUserProfile(data);
+        console.log('Profile data received:', data);
+        // API returns { user: {...} } so we need to extract the user object
+        if (data.user) {
+          setUserProfile({
+            username: data.user.username,
+            avatar: data.user.avatar
+          });
+        } else {
+          console.error('User data not found in response');
+        }
+      } else if (response.status === 404) {
+        // User doesn't have a profile yet, set default values
+        console.log('User profile not found, using default values');
+        setUserProfile({
+          username: null,
+          avatar: null
+        });
+      } else {
+        console.error('Failed to fetch profile:', response.statusText);
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
@@ -62,7 +86,9 @@ export const ConnectButton: FC = () => {
     const authenticate = async () => {
       if (connected && publicKey) {
         try {
+          console.log('Wallet connected, attempting to sign in');
           await signIn();
+          console.log('Sign in successful, fetching profile');
           // Wait a bit for the session to be established
           setTimeout(fetchUserProfile, 1000);
         } catch (error) {
@@ -72,6 +98,14 @@ export const ConnectButton: FC = () => {
     };
     authenticate();
   }, [connected, publicKey, signIn, fetchUserProfile]);
+  
+  // Add an additional effect to fetch profile when component mounts if already connected
+  useEffect(() => {
+    if (connected && publicKey) {
+      console.log('Component mounted with connected wallet, fetching profile');
+      fetchUserProfile();
+    }
+  }, [connected, publicKey, fetchUserProfile]);
 
   if (!connected || !publicKey) {
     return (
@@ -102,7 +136,11 @@ export const ConnectButton: FC = () => {
         ) : (
           <div className="w-6 h-6 bg-midnight dark:bg-[#ffffff] rounded-full" />
         )}
-        <span>{userProfile?.username || 'Anon'}</span>
+        <span>
+          {userProfile?.username 
+            ? `${userProfile.username.substring(0, 5)}...` 
+            : truncateAddress(publicKey?.toString())}
+        </span>
       </button>
 
       {isDropdownOpen && (

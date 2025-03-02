@@ -29,11 +29,14 @@ interface UseListingsResult {
   loadMore: () => Promise<void>;
 }
 
-export function useListings({
-  type,
-  limit = 8,
-  filters = {},
-}: UseListingsOptions): UseListingsResult {
+export function useListings(
+  {
+    type,
+    limit = 8,
+    filters = {},
+  }: UseListingsOptions,
+  dependencies: any[] = []
+): UseListingsResult {
   const [listings, setListings] = useState<ListingWithFavorite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -53,14 +56,20 @@ export function useListings({
           ...(filters?.maxPrice !== undefined && { maxPrice: filters.maxPrice.toString() }),
           ...(filters?.createdBy && { createdBy: filters.createdBy }),
           ...(filters?.status && { status: filters.status }),
+          ...(filters?.brand && { brand: filters.brand }),
+          ...(filters?.noDelivery && { noDelivery: 'true' }),
+          ...(filters?.handDelivery && { handDelivery: 'true' }),
+          ...(filters?.postalService && { postalService: 'true' }),
         });
+        
+        console.log('Fetching listings with params:', Object.fromEntries(params.entries()));
 
         if (cursor) {
           params.append('cursor', cursor);
         }
-
-        // Add artificial delay to ensure loading state is visible
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Add a cache-busting timestamp to ensure we get fresh data
+        params.append('_t', Date.now().toString());
         
         const response = await fetch(`/api/listings?${params}`);
         if (!response.ok) {
@@ -82,6 +91,7 @@ export function useListings({
   // Initial fetch
   useEffect(() => {
     const initialFetch = async () => {
+      console.log('Fetching listings with dependencies:', dependencies);
       const data = await fetchListings();
       if (data) {
         setListings(data.listings);
@@ -90,7 +100,7 @@ export function useListings({
     };
 
     initialFetch();
-  }, [fetchListings]);
+  }, [fetchListings, ...dependencies]);
 
   // Load more function
   const loadMore = async () => {

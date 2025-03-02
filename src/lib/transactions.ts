@@ -91,12 +91,13 @@ export function formatTransactionAmount(
   currency: string,
   solPrice: number | null
 ): string {
-  const solAmount = `${amount.toFixed(2)} SOL`;
+  const solAmount = `${amount.toFixed(6)} SOL`;
   
   if (!solPrice) return solAmount;
   
   const fiatAmount = (amount * solPrice).toFixed(2);
   const currencySymbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '£';
   
-  return `${solAmount} (${currencySymbol}${fiatAmount})`;
+  // Always show preferred currency first, then SOL equivalent
+  return `${currencySymbol}${fiatAmount} (≈ ${solAmount})`;
 }

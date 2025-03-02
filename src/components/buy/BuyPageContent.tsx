@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useConnection, useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -19,10 +19,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 import { SmallListingCard } from '@/components/listings/SmallListingCard';
-import { useCurrencyPreference } from '@/context/CurrencyPreferenceProvider';
 import type { Currency } from '@/lib/price';
 import { useEscrow } from '@/lib/escrow';
-import { formatPrice, formatSOL, getSolPrice } from '@/lib/price';
+import { formatSOL } from '@/lib/price';
+import { usePrice } from '@/hooks/usePrice';
 import { cn } from '@/lib/utils';
 import { useRetry } from '@/hooks/useRetry';
 import { useTransactionStatus } from '@/hooks/useTransactionStatus';
@@ -45,7 +45,6 @@ export default function BuyPageContent({
 }: BuyPageContentProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const { preferredCurrency } = useCurrencyPreference();
   const { publicKey, sendTransaction } = useSolanaWallet();
   const { connection } = useConnection();
   const { createEscrow } = useEscrow();
@@ -53,16 +52,13 @@ export default function BuyPageContent({
   const [isLoading, setIsLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState<'escrow' | 'confirmation' | 'record'>('escrow');
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null);
-  const [solPrice, setSolPrice] = useState<number | null>(null);
-
-  useEffect(() => {
-    const updatePrice = async () => {
-      const price = await getSolPrice(preferredCurrency);
-      setSolPrice(price);
-    };
-
-    updatePrice();
-  }, [preferredCurrency]);
+  
+  // Get price information using the consolidated hook
+  const { 
+    preferredCurrency,
+    solAmount,
+    solPrice
+  } = usePrice(listing.price, listing.currency as Currency || 'USD');
 
   const listingPrice = offerPrice || listing.price;
   const totalPrice = listingPrice + protectionFee + shippingFee;
@@ -332,6 +328,15 @@ function PriceRow({
   isOriginalPrice?: boolean;
   originalPrice?: number;
 }) {
+  // Use the consolidated price hook for both the main amount and original price if present
+  const { 
+    formattedPreferred: amountFormatted,
+    formattedSol: amountSolFormatted
+  } = usePrice(amount, 'USD');
+  
+  // If there's an original price, use the hook for that too
+  const originalPriceData = originalPrice ? usePrice(originalPrice, 'USD') : null;
+  
   return (
     <div
       className={cn(
@@ -341,14 +346,10 @@ function PriceRow({
     >
       <span>{label}</span>
       <div className="text-right">
-        {originalPrice && (
+        {originalPrice && originalPriceData && (
           <div className="text-sm text-gray-500 line-through">
-            {formatSOL(originalPrice)}
-            {solPrice && (
-              <span className="ml-1">
-                {formatPrice(originalPrice * solPrice, currency)}
-              </span>
-            )}
+            <span>{originalPriceData.formattedPreferred}</span>
+            <span className="ml-1 text-xs">{originalPriceData.formattedSol}</span>
           </div>
         )}
         <div
@@ -356,12 +357,8 @@ function PriceRow({
             isOriginalPrice && 'text-gray-500 line-through'
           )}
         >
-          {formatSOL(amount)}
-          {solPrice && (
-            <span className="ml-1 text-sm text-gray-500">
-              {formatPrice(amount * solPrice, currency)}
-            </span>
-          )}
+          <span>{amountFormatted}</span>
+          <span className="ml-1 text-sm text-gray-500">{amountSolFormatted}</span>
         </div>
       </div>
     </div>

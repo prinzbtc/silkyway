@@ -57,9 +57,8 @@ function convertStyleObjectToInlineStyles(styleObj: StyleObject): React.CSSPrope
   
   Object.entries(styleObj).forEach(([key, value]) => {
     if (typeof value === 'string' || typeof value === 'number') {
-      // Convert camelCase to kebab-case
-      const kebabKey = key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
-      styles[kebabKey] = value;
+      // Keep camelCase for React inline styles
+      styles[key] = value;
     }
   });
   

@@ -2,12 +2,11 @@
 
 import { cache } from 'react';
 import prisma from '@/lib/prisma';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { getSession } from '@/lib/auth/session';
 
 export const getUserFavorites = cache(async () => {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getSession();
     if (!session?.user?.id) {
       return null;
     }
@@ -26,7 +25,7 @@ export const getUserFavorites = cache(async () => {
                 avatar: true
               }
             },
-            images: {
+            media: {
               orderBy: {
                 order: 'asc'
               },
@@ -49,7 +48,7 @@ export const getUserFavorites = cache(async () => {
 
 export async function checkIsFavorited(listingId: string): Promise<boolean> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getSession();
     if (!session?.user?.id) {
       return false;
     }

@@ -1,11 +1,15 @@
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 
+// Currency type that includes all supported currencies
+// Note: The database schema only has USD, EUR, GBP as enum values
+// SOL is supported in the application but not as a database currency
 export type Currency = 'SOL' | 'USD' | 'EUR' | 'GBP';
 
+// Currency formatters for display
 const formatters = {
   SOL: new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 6,
   }),
   USD: new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -21,133 +25,178 @@ const formatters = {
   }),
 };
 
-interface SolPriceResponse {
-  usd: number;
-  eur: number;
+// Cache for conversions to reduce API calls
+interface CacheEntry {
+  value: number;
+  timestamp: number;
 }
 
-interface ExchangeRateResponse {
-  rate: number;
-}
+const conversionCache: Record<string, CacheEntry> = {};
+const CACHE_DURATION = 30000; // 30 seconds
 
-let cachedSolPrice: SolPriceResponse | null = null;
-let cachedEurRate: number | null = null;
-let cachedGbpRate: number | null = null;
-let lastSolPriceUpdate = 0;
-let lastEurRateUpdate = 0;
-let lastGbpRateUpdate = 0;
-
-const SOL_PRICE_UPDATE_INTERVAL = 30000; // 30 seconds
-const FIAT_RATE_UPDATE_INTERVAL = 3600000; // 1 hour
-
-async function updateSolPrice() {
+/**
+ * Convert between any two currencies (fiat or SOL)
+ */
+export async function convertCurrency(
+  amount: number,
+  fromCurrency: Currency | string,
+  toCurrency: Currency | string
+): Promise<number | null> {
+  // Normalize currency inputs
+  const normalizedFromCurrency = normalizeCurrency(fromCurrency);
+  const normalizedToCurrency = normalizeCurrency(toCurrency);
+  
+  // If amount is invalid, return null
+  if (amount === undefined || amount === null || isNaN(amount)) {
+    console.log(`convertCurrency - Invalid amount: ${amount}`);
+    return null;
+  }
+  
+  // If currencies are the same (case insensitive), return the original amount
+  if (normalizedFromCurrency.toUpperCase() === normalizedToCurrency.toUpperCase()) {
+    console.log(`convertCurrency - Same currency (${normalizedFromCurrency} === ${normalizedToCurrency}), returning original amount: ${amount}`);
+    return amount;
+  }
+  
+  // Create a cache key
+  const cacheKey = `${amount}_${normalizedFromCurrency}_${normalizedToCurrency}`;
   const now = Date.now();
-  if (!cachedSolPrice || now - lastSolPriceUpdate > SOL_PRICE_UPDATE_INTERVAL) {
-    try {
-      const response = await fetch('/api/prices/sol-usd');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      if ('error' in data) {
-        throw new Error(data.error);
-      }
-      cachedSolPrice = data;
-      lastSolPriceUpdate = now;
-    } catch (error) {
-      console.error('Error fetching SOL price:', error);
-      return null;
-    }
+  
+  // Check if we have a cached value that's still valid
+  if (conversionCache[cacheKey] && now - conversionCache[cacheKey].timestamp < CACHE_DURATION) {
+    console.log(`convertCurrency - Using cached value for ${cacheKey}: ${conversionCache[cacheKey].value}`);
+    return conversionCache[cacheKey].value;
   }
-  return cachedSolPrice;
-}
-
-async function updateEurRate() {
-  const now = Date.now();
-  if (!cachedEurRate || now - lastEurRateUpdate > FIAT_RATE_UPDATE_INTERVAL) {
-    try {
-      const response = await fetch('/api/prices/usd-eur');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      if ('error' in data) {
-        throw new Error(data.error);
-      }
-      cachedEurRate = data.rate;
-      lastEurRateUpdate = now;
-    } catch (error) {
-      console.error('Error fetching EUR rate:', error);
-      return null;
+  
+  try {
+    // Call the centralized API for conversion
+    console.log(`convertCurrency - Fetching conversion from API: ${amount} ${normalizedFromCurrency} to ${normalizedToCurrency}`);
+    const response = await fetch(`/api/prices?amount=${amount}&from=${normalizedFromCurrency}&to=${normalizedToCurrency}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-  }
-  return cachedEurRate;
-}
-
-async function updateGbpRate() {
-  const now = Date.now();
-  if (!cachedGbpRate || now - lastGbpRateUpdate > FIAT_RATE_UPDATE_INTERVAL) {
-    try {
-      const response = await fetch('/api/prices/usd-gbp');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      if ('error' in data) {
-        throw new Error(data.error);
-      }
-      cachedGbpRate = data.rate;
-      lastGbpRateUpdate = now;
-    } catch (error) {
-      console.error('Error fetching GBP rate:', error);
-      return null;
+    
+    const data = await response.json();
+    
+    if ('error' in data) {
+      throw new Error(data.error);
     }
-  }
-  return cachedGbpRate;
-}
-
-export async function getSolPrice(currency: Exclude<Currency, 'SOL'>) {
-  console.log('Getting SOL price for currency:', currency);
-  const solPrice = await updateSolPrice();
-  console.log('SOL price response:', solPrice);
-  if (!solPrice) return null;
-
-  switch (currency) {
-    case 'USD':
-      console.log('Returning USD price:', solPrice.usd);
-      return solPrice.usd;
-    case 'EUR': {
-      const eurRate = await updateEurRate();
-      console.log('EUR rate:', eurRate);
-      const price = eurRate ? solPrice.usd * eurRate : null;
-      console.log('Calculated EUR price:', price);
-      return price;
-    }
-    case 'GBP': {
-      const gbpRate = await updateGbpRate();
-      console.log('GBP rate:', gbpRate);
-      const price = gbpRate ? solPrice.usd * gbpRate : null;
-      console.log('Calculated GBP price:', price);
-      return price;
-    }
+    
+    // Cache the result
+    conversionCache[cacheKey] = {
+      value: data.convertedAmount,
+      timestamp: now
+    };
+    
+    console.log(`convertCurrency - Conversion result: ${data.convertedAmount} (${amount} ${normalizedFromCurrency} to ${normalizedToCurrency})`);
+    return data.convertedAmount;
+  } catch (error) {
+    console.error('Error converting currency:', error);
+    return null;
   }
 }
 
-export function formatSOL(amount: number) {
+/**
+ * Convert fiat currency to SOL
+ */
+export async function convertFiatToSol(
+  amount: number,
+  currency: Currency | string
+): Promise<number | null> {
+  const normalizedCurrency = normalizeCurrency(currency);
+  
+  // If the currency is already SOL, return the original amount
+  if (normalizedCurrency === 'SOL') {
+    return amount;
+  }
+  
+  return convertCurrency(amount, normalizedCurrency, 'SOL');
+}
+
+/**
+ * Get the SOL price in the specified fiat currency
+ */
+export async function getSolPrice(currency: Exclude<Currency, 'SOL'> | string): Promise<number | null> {
+  const normalizedCurrency = normalizeCurrency(currency);
+  
+  if (normalizedCurrency === 'SOL') {
+    return 1; // 1 SOL = 1 SOL
+  }
+  
+  // Convert 1 SOL to the target currency
+  return convertCurrency(1, 'SOL', normalizedCurrency);
+}
+
+/**
+ * Normalize currency input to ensure it's a valid Currency type
+ * This function handles various input types that might come from the database or API
+ */
+export function normalizeCurrency(currency: Currency | string | undefined | null): Currency {
+  // Enhanced debugging for the incoming currency value
+  console.log(`normalizeCurrency - Incoming currency:`, currency, 
+    `type:`, typeof currency, 
+    `constructor:`, currency && (currency as any).constructor ? (currency as any).constructor.name : 'N/A',
+    `toString:`, currency ? currency.toString() : 'N/A');
+  
+  // Handle undefined, null or empty string
+  if (currency === undefined || currency === null || currency === '') {
+    console.log(`normalizeCurrency - Currency is undefined, null or empty, defaulting to USD`);
+    return 'USD';
+  }
+  
+  // Handle potential database enum values (which might be lowercase or objects)
+  // Convert to uppercase string for comparison
+  let currencyStr: string;
+  
+  try {
+    currencyStr = currency.toString().toUpperCase();
+    console.log(`normalizeCurrency - Converted to string: ${currencyStr}`);
+  } catch (error) {
+    console.error(`normalizeCurrency - Error converting currency to string:`, error);
+    return 'USD';
+  }
+  
+  // Validate that it's one of our supported currencies
+  if (!['USD', 'EUR', 'GBP', 'SOL'].includes(currencyStr)) {
+    console.log(`normalizeCurrency - Invalid currency: ${currencyStr}, defaulting to USD`);
+    return 'USD';
+  }
+  
+  // Return the normalized currency
+  console.log(`normalizeCurrency - Normalized currency: ${currencyStr}`);
+  return currencyStr as Currency;
+}
+
+/**
+ * Format SOL amount for display
+ */
+export function formatSOL(amount: number): string {
   return `${formatters.SOL.format(amount)} SOL`;
 }
 
-export function formatPrice(amount: number, currency: Currency) {
-  if (currency === 'SOL') {
+/**
+ * Format price in specified currency for display
+ */
+export function formatPrice(amount: number, currency: Currency | string): string {
+  const normalizedCurrency = normalizeCurrency(currency);
+  
+  if (normalizedCurrency === 'SOL') {
     return formatSOL(amount);
   }
-  return formatters[currency].format(amount);
+  return formatters[normalizedCurrency].format(amount);
 }
 
-export function lamportsToSol(lamports: number) {
+/**
+ * Convert lamports to SOL
+ */
+export function lamportsToSol(lamports: number): number {
   return lamports / LAMPORTS_PER_SOL;
 }
 
-export function solToLamports(sol: number) {
-  return Math.floor(sol * LAMPORTS_PER_SOL);
+/**
+ * Convert SOL to lamports
+ */
+export function solToLamports(sol: number): number {
+  return sol * LAMPORTS_PER_SOL;
 }
