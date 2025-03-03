@@ -23,7 +23,9 @@ export const ConnectButton: FC = () => {
   const { signIn, signOut, isAuthenticating } = useWalletAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -37,6 +39,55 @@ export const ConnectButton: FC = () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Calculate dropdown position when it opens or window resizes
+  const updateDropdownPosition = useCallback(() => {
+    if (isDropdownOpen && buttonRef.current) {
+      const buttonRect = buttonRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+      const dropdownHeight = 160; // Approximate height of dropdown
+      const dropdownWidth = 192; // Width of dropdown (48 * 4)
+      
+      // Check if dropdown would go off bottom of screen
+      const topPosition = buttonRect.bottom + 8;
+      const wouldOverflowBottom = topPosition + dropdownHeight > viewportHeight;
+      
+      // Position above button if it would overflow bottom
+      const newTop = wouldOverflowBottom ? buttonRect.top - dropdownHeight - 8 : topPosition;
+      
+      // Calculate left position to align right edge with button right edge
+      let leftPosition = buttonRect.right - dropdownWidth;
+      
+      // Check if dropdown would go off left edge of screen
+      if (leftPosition < 0) {
+        leftPosition = 0;
+      }
+      
+      // Check if dropdown would go off right edge of screen
+      if (leftPosition + dropdownWidth > viewportWidth) {
+        leftPosition = viewportWidth - dropdownWidth;
+      }
+      
+      setDropdownPosition({
+        top: newTop,
+        left: leftPosition
+      });
+    }
+  }, [isDropdownOpen]);
+  
+  useEffect(() => {
+    updateDropdownPosition();
+    
+    // Add resize and scroll event listeners
+    window.addEventListener('resize', updateDropdownPosition);
+    window.addEventListener('scroll', updateDropdownPosition, true); // true for capture phase to catch all scroll events
+    
+    return () => {
+      window.removeEventListener('resize', updateDropdownPosition);
+      window.removeEventListener('scroll', updateDropdownPosition, true);
+    };
+  }, [isDropdownOpen, updateDropdownPosition]);
 
   const handleConnect = useCallback(() => {
     setVisible(true);
@@ -120,8 +171,9 @@ export const ConnectButton: FC = () => {
   }
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative z-40" ref={dropdownRef}>
       <button
+        ref={buttonRef}
         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
         className="flex items-center space-x-2 px-4 py-2 font-semibold text-sm bg-white text-midnight dark:bg-[hsl(222.2,84%,4.9%)] dark:text-[#ffffff] rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-[hsl(222.2,84%,4.9%)]/90 focus:outline-none focus:ring-2 focus:ring-midnight dark:focus:ring-[#ffffff] focus:ring-opacity-50 transition-colors border border-midnight dark:border-[#ffffff]"
       >
@@ -144,7 +196,7 @@ export const ConnectButton: FC = () => {
       </button>
 
       {isDropdownOpen && (
-        <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-[#ffffff] dark:bg-[hsl(222.2,84%,4.9%)] border border-midnight dark:border-[#ffffff] focus:outline-none">
+        <div className="fixed w-48 rounded-md shadow-lg bg-[#ffffff] dark:bg-[hsl(222.2,84%,4.9%)] border border-midnight dark:border-[#ffffff] focus:outline-none z-50 transition-all duration-150 ease-in-out" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
           <div className="py-1" role="menu" aria-orientation="vertical">
             <Link
               href="/dashboard"
