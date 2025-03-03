@@ -44,6 +44,12 @@ interface ListingType {
   sold?: boolean;
   isFavorite?: boolean;
   favoritesCount?: number;
+  deliveryOptions?: {
+    noDelivery: boolean;
+    handDelivery: boolean;
+    postalService: boolean;
+    deliveryPrice: number;
+  };
 }
 
 function ListingClient({ 
@@ -310,10 +316,11 @@ function ListingClient({
                     </span>
                   )}
                 </h1>
-                <div className="mt-1 flex items-center gap-2">
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
                   <span className="text-sm text-gray-500">
                     {getCategoryLabel(listing.category)}
                     {listing.brand && ` • ${listing.brand}`}
+                    {listing.deliveryOptions && ` • ${listing.deliveryOptions.postalService ? 'Shipping available' : 'No delivery available'}`}
                   </span>
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize
                     bg-white dark:bg-[hsl(222.2,84%,4.9%)]
