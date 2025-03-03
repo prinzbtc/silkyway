@@ -42,7 +42,6 @@ export const LatestListings: FC = () => {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold tracking-tight mb-6">Latest Listings</h2>
       <ListingGrid listings={listings} />
     </div>
   );

@@ -60,17 +60,48 @@ export const SmallListingCard: FC<SmallListingCardProps> = ({ listing }) => {
 
   const isVideo = mainMedia?.type === MediaType.VIDEO;
 
+  // Initialize video element when component mounts
+  useEffect(() => {
+    if (videoRef.current && isVideo) {
+      // Ensure video is muted and ready to play
+      videoRef.current.muted = true;
+      videoRef.current.load();
+      console.log('Video element initialized in SmallListingCard:', mainMedia?.url);
+    }
+  }, [isVideo, mainMedia?.url]);
+
   // Auto-play video on hover
   useEffect(() => {
-    if (isVideoPlaying && videoRef.current) {
-      videoRef.current.play().catch(err => console.error('Error playing video:', err));
+    if (!isVideo || !videoRef.current) return;
+    
+    if (isVideoPlaying) {
+      // Reset video to beginning for better user experience
+      videoRef.current.currentTime = 0;
+      // Ensure video is muted
+      videoRef.current.muted = true;
+      // Play the video
+      const playPromise = videoRef.current.play();
+      
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.error('Error playing video in SmallListingCard:', err);
+          // If autoplay was prevented, try again with explicit user activation
+          if (err.name === 'NotAllowedError') {
+            console.log('Autoplay prevented, will try again on next user interaction');
+          }
+        });
+      }
+    } else {
+      // Pause the video when not hovering
+      videoRef.current.pause();
     }
+    
     return () => {
       if (videoRef.current) {
         videoRef.current.pause();
       }
     };
-  }, [isVideoPlaying]);
+  }, [isVideoPlaying, isVideo]);
 
   return (
     <Link
@@ -91,6 +122,7 @@ export const SmallListingCard: FC<SmallListingCardProps> = ({ listing }) => {
               muted
               loop
               playsInline
+              preload="metadata"
             />
             {!isVideoPlaying && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/20">
@@ -111,11 +143,18 @@ export const SmallListingCard: FC<SmallListingCardProps> = ({ listing }) => {
         {/* Video indicator */}
         {isVideo && (
           <div className="absolute top-0.5 left-0.5 z-10">
-            <span className="px-1 py-0.5 text-[10px] font-medium bg-black/60 text-white rounded-sm backdrop-blur-sm">
+            <span className="px-1 py-0.5 text-[10px] font-medium bg-[hsl(222.2,84%,4.9%)] text-[#ffffff] rounded-sm backdrop-blur-sm">
               Video
             </span>
           </div>
         )}
+        
+        {/* Category Tag */}
+        <div className="absolute bottom-0.5 left-0.5 z-10">
+          <span className="px-1 py-0.5 text-[10px] font-medium bg-[hsl(222.2,84%,4.9%)] text-[#ffffff] rounded-sm backdrop-blur-sm">
+            {listing.category}
+          </span>
+        </div>
       </div>
 
       {/* Content */}

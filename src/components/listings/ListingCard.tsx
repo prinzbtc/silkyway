@@ -75,19 +75,60 @@ export const ListingCard: FC<ListingCardProps> = ({ listing: initialListing }) =
   // Get the main media or first media
   const mainMedia = initialListing.media?.[0] || null;
 
+  // Debug media information
+  console.log('ListingCard - Media info:', {
+    hasMedia: !!mainMedia,
+    mediaType: mainMedia?.type,
+    expectedVideoType: MediaType.VIDEO,
+    isEqual: mainMedia?.type === MediaType.VIDEO,
+    mediaUrl: mainMedia?.url,
+    listingId: initialListing.id
+  });
+
   const isVideo = mainMedia?.type === MediaType.VIDEO;
+
+  // Initialize video element when component mounts
+  useEffect(() => {
+    if (videoRef.current && isVideo) {
+      // Ensure video is muted and ready to play
+      videoRef.current.muted = true;
+      videoRef.current.load();
+      console.log('Video element initialized:', mainMedia?.url);
+    }
+  }, [isVideo, mainMedia?.url]);
 
   // Auto-play video on hover
   useEffect(() => {
-    if (isVideoPlaying && videoRef.current) {
-      videoRef.current.play().catch(err => console.error('Error playing video:', err));
+    if (!isVideo || !videoRef.current) return;
+    
+    if (isVideoPlaying) {
+      // Reset video to beginning for better user experience
+      videoRef.current.currentTime = 0;
+      // Ensure video is muted
+      videoRef.current.muted = true;
+      // Play the video
+      const playPromise = videoRef.current.play();
+      
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.error('Error playing video in ListingCard:', err);
+          // If autoplay was prevented, try again with explicit user activation
+          if (err.name === 'NotAllowedError') {
+            console.log('Autoplay prevented, will try again on next user interaction');
+          }
+        });
+      }
+    } else {
+      // Pause the video when not hovering
+      videoRef.current.pause();
     }
+    
     return () => {
       if (videoRef.current) {
         videoRef.current.pause();
       }
     };
-  }, [isVideoPlaying]);
+  }, [isVideoPlaying, isVideo]);
 
   const handleFavoriteClick = async (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent navigation
@@ -121,6 +162,7 @@ export const ListingCard: FC<ListingCardProps> = ({ listing: initialListing }) =
               muted
               loop
               playsInline
+              preload="metadata"
             />
             {!isVideoPlaying && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/20">
@@ -141,7 +183,7 @@ export const ListingCard: FC<ListingCardProps> = ({ listing: initialListing }) =
         {/* Media Type Indicator */}
         {isVideo && (
           <div className="absolute top-2 left-2 z-10">
-            <span className="px-2 py-1 text-xs font-medium bg-black/60 text-white rounded-md backdrop-blur-sm">
+            <span className="px-2 py-1 text-xs font-medium bg-[hsl(222.2,84%,4.9%)] text-[#ffffff] rounded-md backdrop-blur-sm">
               Video
             </span>
           </div>
@@ -173,7 +215,7 @@ export const ListingCard: FC<ListingCardProps> = ({ listing: initialListing }) =
 
         {/* Category Tag */}
         <div className="absolute bottom-2 left-2">
-          <span className="px-2 py-1 text-xs font-medium bg-black/60 text-white rounded-md backdrop-blur-sm">
+          <span className="px-2 py-1 text-xs font-medium bg-[hsl(222.2,84%,4.9%)] text-[#ffffff] rounded-md backdrop-blur-sm">
             {initialListing.category}
           </span>
         </div>

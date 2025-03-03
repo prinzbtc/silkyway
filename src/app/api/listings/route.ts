@@ -507,7 +507,20 @@ export async function GET(request: NextRequest) {
         description: true,
         price: true,
         currency: true,
-        media: true,
+        media: {
+          orderBy: {
+            order: 'asc'
+          },
+          select: {
+            id: true,
+            url: true,
+            type: true,
+            thumbnail: true,
+            filename: true,
+            order: true,
+            isMainMedia: true
+          }
+        },
         category: true,
         condition: true,
         brand: true,
