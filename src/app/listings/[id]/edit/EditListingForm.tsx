@@ -710,7 +710,7 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
                         <FormControl>
                           <Textarea
                             placeholder="Tell potential buyers about your item..."
-                            className="resize-none"
+                            className="resize-none whitespace-pre-line"
                             {...field}
                           />
                         </FormControl>

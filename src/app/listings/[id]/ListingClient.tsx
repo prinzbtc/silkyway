@@ -351,7 +351,7 @@ function ListingClient({
               </div>
             </div>
 
-            <div className="prose prose-sm max-w-none text-gray-600">
+            <div className="prose prose-sm max-w-none text-gray-600 whitespace-pre-line">
               {listing.description}
             </div>
 

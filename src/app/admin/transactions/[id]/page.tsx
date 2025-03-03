@@ -136,7 +136,7 @@ export default function TransactionPage({
                 />
               </div>
               <h3 className="text-lg font-medium">{transaction.listing.title}</h3>
-              <p className="text-gray-600">{transaction.listing.description}</p>
+              <p className="text-gray-600 whitespace-pre-line">{transaction.listing.description}</p>
               <div className="flex space-x-4 text-sm text-gray-600">
                 <span>Category: {transaction.listing.category}</span>
                 <span>Condition: {transaction.listing.condition}</span>
