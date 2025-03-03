@@ -83,7 +83,7 @@ export const ActiveListings: FC<ActiveListingsProps> = ({ userId }) => {
       {listings.length >= 6 && (
         <div className="mt-4 text-center">
           <Button variant="outline" asChild>
-            <Link href="/listings/my">
+            <Link href="/userListings">
               See All Listings
             </Link>
           </Button>
