@@ -74,31 +74,54 @@ export const SmallListingCard: FC<SmallListingCardProps> = ({ listing }) => {
   useEffect(() => {
     if (!isVideo || !videoRef.current) return;
     
-    if (isVideoPlaying) {
-      // Reset video to beginning for better user experience
-      videoRef.current.currentTime = 0;
-      // Ensure video is muted
-      videoRef.current.muted = true;
-      // Play the video
-      const playPromise = videoRef.current.play();
+    let isMounted = true;
+    
+    const playVideo = async () => {
+      if (!videoRef.current || !isMounted) return;
       
-      if (playPromise !== undefined) {
-        playPromise.catch(err => {
-          console.error('Error playing video in SmallListingCard:', err);
-          // If autoplay was prevented, try again with explicit user activation
+      try {
+        // Reset video to beginning for better user experience
+        videoRef.current.currentTime = 0;
+        // Ensure video is muted
+        videoRef.current.muted = true;
+        // Play the video
+        await videoRef.current.play();
+      } catch (err) {
+        // Silently handle AbortError (play interrupted by pause)
+        if (err instanceof Error && err.name !== 'AbortError') {
+          // Only log errors that aren't AbortError
           if (err.name === 'NotAllowedError') {
             console.log('Autoplay prevented, will try again on next user interaction');
+          } else {
+            console.error('Error playing video in SmallListingCard:', err);
           }
-        });
+        }
       }
+    };
+    
+    const pauseVideo = () => {
+      if (!videoRef.current || !isMounted) return;
+      try {
+        videoRef.current.pause();
+      } catch (err) {
+        // Silently handle any pause errors
+      }
+    };
+    
+    if (isVideoPlaying) {
+      playVideo();
     } else {
-      // Pause the video when not hovering
-      videoRef.current.pause();
+      pauseVideo();
     }
     
     return () => {
+      isMounted = false;
       if (videoRef.current) {
-        videoRef.current.pause();
+        try {
+          videoRef.current.pause();
+        } catch (err) {
+          // Silently handle any errors during cleanup
+        }
       }
     };
   }, [isVideoPlaying, isVideo]);
