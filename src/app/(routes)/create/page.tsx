@@ -15,6 +15,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
+import { LoadingDialog } from '@/components/ui/loading-dialog';
+import { ListingCard } from '@/components/listings/ListingCard';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { usePrice } from '@/hooks/usePrice';
@@ -92,6 +94,7 @@ const CreateListingPage: FC = () => {
   const normalizedPreferredCurrency = normalizeCurrency(preferredCurrency);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [newListingId, setNewListingId] = useState<string | null>(null);
+  const [createdListing, setCreatedListing] = useState<any>(null);
   const [mediaProcessingComplete, setMediaProcessingComplete] = useState(false);
   const [processingFailed, setProcessingFailed] = useState(false);
 
@@ -234,6 +237,20 @@ const CreateListingPage: FC = () => {
 
       const newListing = await response.json();
       console.log('Listing created:', newListing);
+      
+      // Store the new listing ID
+      setNewListingId(newListing.id);
+      
+      // Fetch the complete listing with user data for the success dialog
+      try {
+        const listingResponse = await fetch(`/api/listings/${newListing.id}`);
+        if (listingResponse.ok) {
+          const completeListingData = await listingResponse.json();
+          setCreatedListing(completeListingData);
+        }
+      } catch (error) {
+        console.error('Error fetching complete listing data:', error);
+      }
 
       // Invalidate all caches to ensure the new listing appears everywhere
       try {
@@ -255,8 +272,7 @@ const CreateListingPage: FC = () => {
         console.error('Error invalidating caches:', error);
       }
 
-      // Set new listing ID and show success dialog
-      setNewListingId(newListing.id);
+      // Show success dialog
       setShowSuccessDialog(true);
       setIsLoading(false);
     } catch (error) {
@@ -795,26 +811,73 @@ const CreateListingPage: FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Publishing Loading Dialog */}
+      <LoadingDialog
+        open={isLoading}
+        title="Publishing Your Listing"
+        description="Please wait while we process your media and create your listing"
+      />
+
       {/* Success Dialog */}
       <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Congratulations!</DialogTitle>
-            <DialogDescription>
-              Your item is listed on Silkyway.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => {
-              setShowSuccessDialog(false);
-              router.push('/dashboard');
-            }}>
-              Close
-            </Button>
-            <Button onClick={() => router.push(`/listings/${newListingId}`)}>
-              View Listing
-            </Button>
-          </DialogFooter>
+        <DialogContent className="max-w-4xl p-0 overflow-hidden">
+          <div className="flex flex-col md:flex-row">
+            {/* Listing Card Preview - Left Side */}
+            <div className="w-full md:w-1/2 bg-muted/20">
+              {createdListing ? (
+                <div className="p-4 h-full flex items-center justify-center">
+                  <div className="w-full max-w-sm">
+                    <ListingCard listing={createdListing} />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 h-full flex items-center justify-center">
+                  <div className="animate-pulse flex flex-col space-y-4 w-full max-w-sm">
+                    <div className="rounded-lg bg-gray-200 h-64 w-full"></div>
+                    <div className="h-6 bg-gray-200 rounded w-3/4"></div>
+                    <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                    <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Content - Right Side */}
+            <div className="w-full md:w-1/2 p-6 flex flex-col">
+              <DialogHeader className="text-left mb-6">
+                <DialogTitle className="text-2xl">Congratulations!</DialogTitle>
+                <DialogDescription className="text-base mt-2">
+                  Your item has been successfully listed on Silkyway. You can view it, share it, or return to your dashboard.
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="mt-auto space-y-4">
+                <div className="flex flex-col space-y-2">
+                  <h4 className="text-sm font-medium">What's next?</h4>
+                  <ul className="text-sm text-muted-foreground space-y-1 list-disc pl-5">
+                    <li>Share your listing on social media</li>
+                    <li>Add more listings to your shop</li>
+                    <li>Check your dashboard for activity</li>
+                  </ul>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-6">
+                  <Button variant="outline" onClick={() => {
+                    setShowSuccessDialog(false);
+                    router.push('/dashboard');
+                  }} className="sm:flex-1">
+                    Go to Dashboard
+                  </Button>
+                  <Button 
+                    onClick={() => router.push(`/listings/${newListingId}`)}
+                    className="sm:flex-1"
+                  >
+                    View Listing
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
       </div>
