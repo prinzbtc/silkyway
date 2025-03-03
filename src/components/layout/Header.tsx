@@ -4,7 +4,7 @@ import { FC } from 'react';
 import Link from 'next/link';
 import { ConnectButton } from '../wallet/ConnectButton';
 import { CurrencySelector } from '../header/CurrencySelector';
-import { SearchBar } from '../header/SearchBar';
+import { SearchBar } from '../search/SearchBar';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { ThemeToggle } from '../theme/ThemeToggle';
 
@@ -29,7 +29,7 @@ export const Header: FC = () => {
           </div>
 
           <div className="flex items-center space-x-4">
-            <SearchBar />
+            <SearchBar variant="minimal" className="max-w-xs" />
             <CurrencySelector />
             <ThemeToggle />
             <NotificationBell />
