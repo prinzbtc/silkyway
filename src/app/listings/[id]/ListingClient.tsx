@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
 import Image from 'next/image';
-import { Heart, MessageCircle, Share2, AlertTriangle } from 'lucide-react';
+import { Heart, MessageCircle, Share2, AlertTriangle, MapPin } from 'lucide-react';
 import { useFavorite } from '@/hooks/useFavorite';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -40,6 +40,7 @@ interface ListingType {
     id: string;
     username: string;
     avatar?: string;
+    location?: string; // Add location to the user object type
   };
   sold?: boolean;
   isFavorite?: boolean;
@@ -97,6 +98,7 @@ function ListingClient({
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const [mediaDimensions, setMediaDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [sellerLocation, setSellerLocation] = useState<string | null>(null);
 
   // Use the useFavorite hook
   const { isFavorited, isLoading: isFavoriteLoading, toggleFavorite } = useFavorite(listingId);
@@ -111,7 +113,10 @@ function ListingClient({
   useEffect(() => {
     const fetchListing = async () => {
       try {
+        console.log('Fetching listing data for ID:', listingId);
         const response = await fetch(`/api/listings/${listingId}`);
+        console.log('Listing API response status:', response.status);
+        
         if (!response.ok) {
           // Handle 404 specifically
           if (response.status === 404) {
@@ -129,13 +134,14 @@ function ListingClient({
         }
         
         const data = await response.json();
+        console.log('Full listing data received:', data);
         
         // Validate that we have a proper listing object
         if (!data || !data.id) {
           throw new Error('Invalid listing data');
         }
         
-        // Debug: Log the raw media data from the API
+        // Debug: Log the raw media data and user data from the API
         console.log('Raw listing data from API:', {
           id: data.id,
           title: data.title,
@@ -145,10 +151,106 @@ function ListingClient({
             type: m.type,
             url: m.url,
             thumbnail: m.thumbnail
-          }))
+          })),
+          user: data.user
         });
         
         setListing(data);
+        
+        // Check if location is already included in the listing data
+        console.log('Checking for location in listing data:', data.user);
+        if (data.user && data.user.location) {
+          console.log('Location found directly in listing data:', data.user.location);
+          setSellerLocation(data.user.location);
+        }
+        // If not, fetch seller's location as a fallback
+        else if (data.user && data.user.id) {
+          // Force refresh the location data from the API to bypass any stale cache
+          console.log('No location in listing data or it might be stale, force refreshing location for user ID:', data.user.id);
+          console.log('No location in listing data, attempting to fetch for user ID:', data.user.id);
+          try {
+            // First try the user profile API which includes the location field
+            const headers = new Headers();
+            headers.append('x-user-id', data.user.id);
+            
+            const profileResponse = await fetch('/api/user/profile', {
+              headers: headers
+            });
+            
+            console.log('Profile API response status:', profileResponse.status);
+            
+            if (profileResponse.ok) {
+              const profileData = await profileResponse.json();
+              
+              console.log('Profile API response data:', profileData);
+              
+              // Check multiple possible response structures
+              const location = 
+                profileData.user?.location || 
+                profileData.location || 
+                profileData.user?.profile?.location;
+              
+              if (location) {
+                console.log('Location found in profile API:', location);
+                setSellerLocation(location);
+              } else {
+                console.log('No location in profile API, falling back to users API');
+                // Fallback to the users API
+                const userResponse = await fetch(`/api/users/${data.user.id}`);
+                
+                console.log('Users API response status:', userResponse.status);
+                
+                if (userResponse.ok) {
+                  const userData = await userResponse.json();
+                  
+                  console.log('Users API response data:', userData);
+                  
+                  // Check multiple possible response structures
+                  const location = 
+                    userData.user?.location || 
+                    userData.location || 
+                    userData.user?.profile?.location;
+                  
+                  if (location) {
+                    console.log('Location found in users API:', location);
+                    setSellerLocation(location);
+                  } else {
+                    console.log('No location found in users API');
+                  }
+                }
+              }
+            } else {
+              console.log('Profile API request failed, falling back to users API');
+              // Fallback to the users API if profile API fails
+              const userResponse = await fetch(`/api/users/${data.user.id}`);
+              
+              console.log('Users API response status:', userResponse.status);
+              
+              if (userResponse.ok) {
+                const userData = await userResponse.json();
+                
+                console.log('Users API response data:', userData);
+                
+                // Check multiple possible response structures
+                const location = 
+                  userData.user?.location || 
+                  userData.location || 
+                  userData.user?.profile?.location;
+                
+                if (location) {
+                  console.log('Location found in users API:', location);
+                  setSellerLocation(location);
+                } else {
+                  console.log('No location found in users API');
+                }
+              }
+            }
+          } catch (userError) {
+            console.error('Error fetching seller location:', userError);
+          }
+        } else {
+          console.log('No user data available to fetch location');
+        }
       } catch (err) {
         console.error('Error fetching listing:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -162,6 +264,41 @@ function ListingClient({
     if (!initialListing) {
       fetchListing();
     } else {
+      console.log('Using initial listing data:', initialListing);
+      console.log('Initial listing user data:', initialListing.user);
+      
+      // Check if the initial listing has location data
+      if (initialListing.user && initialListing.user.location) {
+        console.log('Location found in initial listing data:', initialListing.user.location);
+        setSellerLocation(initialListing.user.location);
+      } else if (initialListing.user && initialListing.user.id) {
+        // If not, we should fetch it separately
+        console.log('No location in initial listing, will fetch separately for user ID:', initialListing.user.id);
+        
+        // Fetch the user's profile to get the location
+        fetch(`/api/users/${initialListing.user.id}`)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error('Failed to fetch user profile');
+            }
+            return response.json();
+          })
+          .then(userData => {
+            console.log('Fetched user data:', userData);
+            if (userData.location) {
+              console.log('Found location in user data:', userData.location);
+              setSellerLocation(userData.location);
+            } else {
+              console.log('No location found in user data');
+              setSellerLocation('Unknown');
+            }
+          })
+          .catch(error => {
+            console.error('Error fetching user profile:', error);
+            setSellerLocation('Unknown');
+          });
+      }
+      
       setIsLoading(false);
     }
   }, [listingId, initialListing]);
@@ -287,6 +424,9 @@ function ListingClient({
     thumbnail: item.thumbnail
   })));
 
+  // Debug seller location state before rendering
+  console.log('Before rendering - Seller location state:', sellerLocation);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
@@ -327,6 +467,17 @@ function ListingClient({
                     text-[hsl(222.2,84%,4.9%)] dark:text-[#ffffff]
                     ring-1 ring-[hsl(222.2,84%,4.9%)] dark:ring-[#ffffff]">
                     {listing.condition.replace('-', ' ')}
+                  </span>
+                </div>
+                {/* Seller location */}
+                {/* Use a fragment to avoid the void return type error */}
+                <>{console.log('Rendering seller location section, value:', sellerLocation)}</>
+                <div className="mt-1 flex items-center">
+                  <MapPin className="h-4 w-4 text-gray-500 mr-1" />
+                  <span className="text-sm text-gray-500">
+                    {!sellerLocation && 'Location information loading...'}
+                    {sellerLocation === 'Unknown' && 'Location not specified'}
+                    {sellerLocation && sellerLocation !== 'Unknown' && `Located in ${sellerLocation}`}
                   </span>
                 </div>
               </div>

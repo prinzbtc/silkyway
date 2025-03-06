@@ -9,7 +9,14 @@ export async function GET(
     // Get user with their listings and reviews count
     const user = await prisma.user.findUnique({
       where: { id: params.id },
-      include: {
+      select: {
+        id: true,
+        username: true,
+        avatar: true,
+        bio: true,
+        walletAddress: true,
+        createdAt: true,
+        location: true, // Added location field
         _count: {
           select: {
             listings: true,
@@ -39,6 +46,7 @@ export async function GET(
     return NextResponse.json({
       ...user,
       totalRating: totalRating._sum.rating || 0,
+      location: user.location // Explicitly add location to the response
     });
   } catch (error) {
     console.error('Error fetching user:', error);

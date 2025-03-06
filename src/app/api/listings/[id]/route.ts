@@ -73,6 +73,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
             id: true,
             username: true,
             avatar: true,
+            location: true,
           },
         },
         favorites: true,
@@ -109,15 +110,34 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         })
       : null
 
+    // Make sure we're properly including the user's location in the response
     const response = {
       ...listing,
       favoritesCount: (listing as any).favorites.length,
       isFavorite: !!isFavorite,
       _count: undefined,
+      // Ensure user object with location is preserved
+      user: {
+        ...listing.user,
+        location: listing.user.location
+      }
     }
+    
+    // Debug the response to verify location is included
+    console.log('Listing API response user data:', {
+      userId: listing.user.id,
+      username: listing.user.username,
+      location: listing.user.location
+    });
 
-    // Cache the response
-    await redis.set(cacheKey, response, {
+    // Make sure we're not losing data during serialization for caching
+    const cacheableResponse = JSON.parse(JSON.stringify(response));
+    
+    // Verify location is still present after serialization
+    console.log('Before caching - User location:', cacheableResponse.user?.location);
+    
+    // Cache the response with a shorter TTL to help with debugging
+    await redis.set(cacheKey, cacheableResponse, {
       ex: CACHE_TTL.LISTING,
     })
 
