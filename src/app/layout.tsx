@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { WalletContextProvider } from '@/context/WalletContextProvider'
 import { CurrencyPreferenceProvider } from '@/context/CurrencyPreferenceProvider'
+import { SearchProvider } from '@/context/SearchProvider'
 import { BadgeProvider } from '@/providers/BadgeProvider'
 import { SessionProvider } from '@/providers/SessionProvider'
 import { Header } from '@/components/layout/Header'
@@ -40,13 +41,15 @@ export default function RootLayout({
         <SessionProvider>
           <WalletContextProvider>
             <CurrencyPreferenceProvider>
-              <BadgeProvider>
-                <Header />
-                <main className="min-h-screen">
-                  {children}
-                </main>
-                <Footer />
-              </BadgeProvider>
+              <SearchProvider>
+                <BadgeProvider>
+                  <Header />
+                  <main className="min-h-screen">
+                    {children}
+                  </main>
+                  <Footer />
+                </BadgeProvider>
+              </SearchProvider>
             </CurrencyPreferenceProvider>
           </WalletContextProvider>
         </SessionProvider>

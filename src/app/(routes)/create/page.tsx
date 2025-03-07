@@ -127,6 +127,63 @@ const CreateListingPage: FC = () => {
         postalService: values.postalService === true,
       });
 
+      // If a brand is provided, check if it needs to be added to the system
+      if (values.brand && values.category) {
+        const categoryBrands = BRAND_CATEGORIES[values.category as BrandCategories] || [];
+        const brandsList = Array.isArray(categoryBrands) ? categoryBrands : [];
+        
+        // Type-safe brand check
+        const isValidBrand = brandsList.some(
+          (existingBrand) => existingBrand.toLowerCase() === values.brand?.toLowerCase()
+        );
+
+        // If the brand doesn't exist in our static list, add it to the system
+        if (!isValidBrand) {
+          console.log(`Adding new brand "${values.brand}" to category "${values.category}"`);
+          try {
+            const response = await fetch('/api/brands', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                category: values.category,
+                brand: values.brand,
+              }),
+            });
+            
+            if (!response.ok) {
+              const errorData = await response.json();
+              console.error('Failed to add brand:', errorData);
+              toast({
+                title: "Warning",
+                description: "Could not add the new brand to the system. The listing will still be created.",
+                variant: "destructive"
+              });
+            } else {
+              console.log('Brand added successfully');
+              // Add to local BRAND_CATEGORIES for immediate UI update
+              // We'll use the BrandService utility function instead of directly modifying the array
+              if (values.category in BRAND_CATEGORIES) {
+                // Import the BrandService function dynamically to avoid circular dependencies
+                import('@/lib/brands').then(({ BrandService }) => {
+                  BrandService.addToStaticList(values.brand!, values.category as BrandCategories);
+                }).catch(err => {
+                  console.error('Error importing BrandService:', err);
+                });
+              }
+            }
+          } catch (error) {
+            console.error('Error adding brand:', error);
+            toast({
+              title: "Warning",
+              description: "Could not add the new brand to the system due to a network error. The listing will still be created.",
+              variant: "destructive"
+            });
+          }
+        }
+      }
+
       // Validate that we have at least one image
       const hasImage = media.some(m => m.type === MediaType.IMAGE);
       if (!hasImage) {
@@ -464,10 +521,29 @@ const CreateListingPage: FC = () => {
                     onChange={field.onChange}
                     suggestions={(() => {
                       const category = form.watch('category') as BrandCategories;
+                      console.log('Create form: getting initial suggestions for category:', category);
+                      
+                      // Validate the category is a valid BrandCategories value
                       if (category && Object.keys(BRAND_CATEGORIES).includes(category)) {
-                        return [...BRAND_CATEGORIES[category]];
+                        const suggestions = [...BRAND_CATEGORIES[category]];
+                        console.log(`Create form: found ${suggestions.length} initial suggestions for ${category}`);
+                        return suggestions;
                       }
+                      console.log('Create form: no valid category selected, returning empty suggestions');
                       return [];
+                    })()}
+                    category={(() => {
+                      const category = form.watch('category') as BrandCategories;
+                      
+                      // Log the category value for debugging
+                      console.log('Create form: category value:', category);
+                      
+                      // Check if it's a valid BrandCategories value
+                      const isValid = category && Object.keys(BRAND_CATEGORIES).includes(category);
+                      console.log('Create form: is valid category?', isValid);
+                      
+                      // Only pass the category if it's valid
+                      return isValid ? category : undefined;
                     })()}
                     placeholder="Start typing to see suggestions"
                   />
