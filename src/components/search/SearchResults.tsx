@@ -40,6 +40,7 @@ export const SearchResults: FC<SearchResultsProps> = ({
       maxPrice: filters.maxPrice,
       brand: filters.brand,
       region: filters.region,
+      sellerLocation: filters.sellerLocation, // Add seller location filter
       noDelivery: filters.noDelivery,
       handDelivery: filters.handDelivery,
       postalService: filters.postalService,
@@ -52,6 +53,7 @@ export const SearchResults: FC<SearchResultsProps> = ({
     filters.maxPrice,
     filters.brand,
     filters.region,
+    filters.sellerLocation, // Add seller location to dependencies
     filters.noDelivery,
     filters.handDelivery,
     filters.postalService,
