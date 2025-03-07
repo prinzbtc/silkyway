@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ListingWithFavorite } from '@/types/listing';
 
+// Import CountrySelectValue type
+import { CountrySelectValue } from '@/components/ui/country-select';
+
 interface UseListingsFilters {
   category?: string;
   minPrice?: number;
@@ -10,9 +13,11 @@ interface UseListingsFilters {
   status?: 'active' | 'sold' | 'deleted';
   brand?: string;
   region?: string;
+  sellerLocation?: CountrySelectValue;
   noDelivery?: boolean;
   handDelivery?: boolean;
   postalService?: boolean;
+  q?: string; // Search query parameter
 }
 
 interface UseListingsOptions {
@@ -56,10 +61,30 @@ export function useListings(
           ...(filters?.maxPrice !== undefined && { maxPrice: filters.maxPrice.toString() }),
           ...(filters?.createdBy && { createdBy: filters.createdBy }),
           ...(filters?.status && { status: filters.status }),
-          ...(filters?.brand && { brand: filters.brand }),
+          // Handle brand filter (could be string or array of BrandOption objects)
+          ...(filters?.brand && { 
+            brand: Array.isArray(filters.brand) ? JSON.stringify(filters.brand) : filters.brand,
+            _brand_debug: `Brand filter applied: ${Array.isArray(filters.brand) ? 
+              `${filters.brand.length} brands` : filters.brand}` 
+          }),
+          
+          // Handle seller location (CountrySelectValue object)
+          ...(filters?.sellerLocation && { 
+            sellerLocation: JSON.stringify(filters.sellerLocation),
+            _location_debug: `Seller location filter applied: ${filters.sellerLocation.label}` 
+          }),
+          
+          // Add additional debug logging for seller location
+          _debug_seller_location: filters?.sellerLocation ? 
+            `Raw: ${JSON.stringify(filters.sellerLocation)}, Value: ${filters.sellerLocation.value}` : 
+            'No seller location filter',
+        
+          // Log all filters for debugging
+          _all_filters: JSON.stringify(filters),
           ...(filters?.noDelivery && { noDelivery: 'true' }),
           ...(filters?.handDelivery && { handDelivery: 'true' }),
           ...(filters?.postalService && { postalService: 'true' }),
+          ...(filters?.q && { q: filters.q }), // Add search query parameter
         });
         
         console.log('Fetching listings with params:', Object.fromEntries(params.entries()));
@@ -85,7 +110,7 @@ export function useListings(
         setIsLoading(false);
       }
     },
-    [type, limit, filters.category, filters.minPrice, filters.maxPrice, filters.createdBy, filters.status, filters.brand, filters.region, filters.noDelivery, filters.handDelivery, filters.postalService]
+    [type, limit, filters.category, filters.minPrice, filters.maxPrice, filters.createdBy, filters.status, filters.brand, filters.region, filters.sellerLocation, filters.noDelivery, filters.handDelivery, filters.postalService, filters.q]
   );
 
   // Initial fetch

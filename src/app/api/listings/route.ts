@@ -442,13 +442,128 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category') || undefined;
     const minPrice = parseFloat(searchParams.get('minPrice') || '0');
     const maxPrice = parseFloat(searchParams.get('maxPrice') || '1000');
-    const brand = searchParams.get('brand') || undefined;
+    const brandParam = searchParams.get('brand') || undefined;
+    let brands: string[] = [];
+    
+    // Parse brand parameter which could be a string or JSON array
+    if (brandParam) {
+      console.log(`API: Raw brand filter received: ${brandParam}`);
+      try {
+        // Try to parse as JSON (for array of BrandOption)
+        const parsedBrand = JSON.parse(brandParam);
+        console.log(`API: Parsed brand data:`, parsedBrand);
+        
+        // Check if it's an array of brand objects
+        if (Array.isArray(parsedBrand)) {
+          brands = parsedBrand
+            .filter(b => b && typeof b === 'object' && 'value' in b)
+            .map(b => b.value);
+          console.log(`API: Using multiple brands:`, brands);
+        } 
+        // Check if it's a single brand object
+        else if (parsedBrand && typeof parsedBrand === 'object' && 'value' in parsedBrand) {
+          brands = [parsedBrand.value];
+          console.log(`API: Using single brand value: ${parsedBrand.value}`);
+        }
+      } catch (e) {
+        // If not JSON, use as-is (for backward compatibility)
+        brands = [brandParam];
+        console.log(`API: Using brand directly: ${brandParam}`);
+      }
+      
+      // Debug log the final brands array
+      console.log(`API: Final brands array for filtering:`, brands);
+      
+      // Debug: Test query to verify brand filter works independently
+      if (process.env.NODE_ENV === 'development' && brands.length > 0) {
+        setTimeout(async () => {
+          try {
+            const testQuery = await prisma.listing.findMany({
+              where: {
+                OR: brands.map(brand => ({
+                  brand: {
+                    equals: brand,
+                    mode: 'insensitive' as const
+                  }
+                }))
+              },
+              take: 5,
+              select: { id: true, title: true, brand: true }
+            });
+            console.log(`DEBUG: Brand filter test query found ${testQuery.length} listings:`, 
+              testQuery.map(l => `${l.id}: ${l.title} (${l.brand})`));
+          } catch (error) {
+            console.error('DEBUG: Error testing brand filter:', error);
+          }
+        }, 0);
+      }
+    }
+    
+    // Log all search params for debugging
+    console.log('All search params:', Object.fromEntries(searchParams.entries()));
     const query = searchParams.get('q') || undefined;
     const deliveryOptions = searchParams.get('deliveryOptions') || undefined;
     const limit = parseInt(searchParams.get('limit') || '8', 10);
     const cursor = searchParams.get('cursor') || undefined;
     const createdBy = searchParams.get('createdBy') || undefined;
     const status = searchParams.get('status') || 'active';
+    // Handle seller location which could be a JSON string from LocationSelect
+    const sellerLocationParam = searchParams.get('sellerLocation');
+    let sellerLocations: string[] = [];
+    
+    if (sellerLocationParam) {
+      console.log(`DEBUG: Raw sellerLocation param:`, sellerLocationParam);
+      try {
+        // Try to parse as JSON (from LocationSelect)
+        const locationData = JSON.parse(sellerLocationParam);
+        console.log(`DEBUG: Parsed location data:`, locationData);
+        
+        // Check if it's an array of location objects (multi-select)
+        if (Array.isArray(locationData)) {
+          sellerLocations = locationData
+            .filter(loc => loc && typeof loc === 'object' && 'value' in loc)
+            .map(loc => loc.value);
+          console.log(`API: Using multiple seller locations:`, sellerLocations);
+        } 
+        // Check if it's a single location object (backward compatibility)
+        else if (locationData && typeof locationData === 'object' && 'value' in locationData) {
+          sellerLocations = [locationData.value];
+          console.log(`API: Using single seller location value: ${locationData.value}`);
+        } else {
+          console.log(`API: Invalid location object format:`, locationData);
+        }
+        
+        // DEBUG: Check if there are any users with these locations
+        if (process.env.NODE_ENV === 'development' && sellerLocations.length > 0) {
+          // This is just for debugging - we'll execute this query separately
+          setTimeout(async () => {
+            try {
+              const usersWithLocation = await prisma.user.findMany({
+                where: {
+                  OR: sellerLocations.flatMap(location => [
+                    // Match exact country code at start of string followed by pipe
+                    { location: { startsWith: `${location}|`, mode: 'insensitive' } },
+                    // Also match if it's exactly equal to the country code (unlikely but possible)
+                    { location: { equals: location, mode: 'insensitive' } }
+                  ])
+                },
+                select: { id: true, location: true }
+              });
+              console.log(`DEBUG: Found ${usersWithLocation.length} users with locations matching:`, sellerLocations);
+              usersWithLocation.forEach(user => {
+                console.log(`DEBUG: User ${user.id} has location: ${user.location}`);
+              });
+            } catch (error) {
+              console.error('DEBUG: Error checking users with location:', error);
+            }
+          }, 0);
+        }
+      } catch (e) {
+        // If not JSON, use as-is (for backward compatibility)
+        sellerLocations = [sellerLocationParam];
+        console.log(`API: Using seller location directly: ${sellerLocationParam}`);
+      }
+    }
 
     // Get user session for personalized recommendations
     const session = await getSession(request);
@@ -461,6 +576,16 @@ export async function GET(request: NextRequest) {
     // Log the delivery filter conditions for debugging
     console.log('Delivery filter conditions:', { noDelivery, handDelivery, postalService });
 
+    // Log filter debugging information outside the query
+    if (process.env.NODE_ENV === 'development') {
+      if (sellerLocations.length > 0) {
+        console.log(`DEBUG: Filtering listings by seller locations matching:`, sellerLocations);
+      }
+      if (brands.length > 0) {
+        console.log(`API: Filtering listings by brands: ${brands.join(', ')} (case-insensitive)`);
+      }
+    }
+
     // Construct where clause
     const where: Prisma.ListingWhereInput = {
       status,
@@ -470,14 +595,59 @@ export async function GET(request: NextRequest) {
         gte: minPrice,
         lte: maxPrice,
       },
-      ...(brand && { brand }),
+      
+      // If sellerLocations is specified, filter by user location
+      // The location is stored as "value|label|flag" in the database
+      ...(sellerLocations.length > 0 && {
+        user: {
+          OR: sellerLocations.flatMap(location => [
+            // Match exact country code at start of string followed by pipe
+            { location: { startsWith: `${location}|`, mode: 'insensitive' as const } },
+            // Also match if it's exactly equal to the country code (unlikely but possible)
+            { location: { equals: location, mode: 'insensitive' as const } }
+          ])
+        }
+      }),
+      
+      // Debug: Log the sellerLocation filter condition
+      ...(sellerLocations.length === 0 && process.env.NODE_ENV === 'development' && {
+        // This is just for debugging - doesn't affect the query
+        // Adding a comment to indicate no location filter is applied
+      }),
+      
+      // Apply brand filter (case-insensitive)
+      ...(brands.length > 0 && { 
+        OR: brands.map(brand => ({
+          brand: {
+            equals: brand,
+            mode: 'insensitive' as const // Make the search case-insensitive
+          }
+        }))
+      }),
+      
+      // Debug: Log when brand filter is applied
+      ...(brands.length > 0 && process.env.NODE_ENV === 'development' && {
+        // This is just for debugging - doesn't affect the query
+        // Adding a comment to indicate brand filter is applied
+      }),
+      
+      // Debug: Test query to verify brand filter works independently
+      ...(brands.length > 0 && process.env.NODE_ENV === 'development' && {
+        // This is just for debugging - we'll execute this query separately
+        // to verify the brand filter works
+      }),
+      
+      // No additional conditions needed
+      
+      // No additional debug code
       ...(query && {
         OR: [
           { title: { contains: query, mode: 'insensitive' } },
           { description: { contains: query, mode: 'insensitive' } },
-          ...(brand ? [{ brand: { contains: query, mode: 'insensitive' as const } }] : []),
+          { brand: { contains: query, mode: 'insensitive' } },
         ] as Prisma.ListingWhereInput[],
       }),
+      // Seller location filter is already applied above
       ...(noDelivery || handDelivery || postalService ? {
         OR: [
           ...(noDelivery ? [{
@@ -535,6 +705,7 @@ export async function GET(request: NextRequest) {
             id: true,
             username: true,
             avatar: true,
+            location: true,
           },
         },
         _count: {
@@ -613,6 +784,48 @@ export async function GET(request: NextRequest) {
         break;
       default:
         orderBy = { createdAt: 'desc' as const };
+    }
+
+    // Debug the query we're about to execute
+    if (process.env.NODE_ENV === 'development') {
+      console.log('DEBUG: Executing listing query with where clause:', JSON.stringify(where, null, 2));
+      
+      // Debug: Check all user locations in the database
+      if (sellerLocations.length > 0) {
+        setTimeout(async () => {
+          try {
+            const allUsers = await prisma.user.findMany({
+              where: {
+                location: { not: null }
+              },
+              select: { id: true, username: true, location: true }
+            });
+            
+            console.log(`DEBUG: Found ${allUsers.length} users with location data:`);
+            allUsers.forEach(user => {
+              console.log(`DEBUG: User ${user.username} (${user.id}) has location: ${user.location}`);
+            });
+            
+            // Check if any user matches our filter
+            const matchingUsers = allUsers.filter(user => {
+              if (sellerLocations.length === 0) return false;
+              const locationLower = user.location?.toLowerCase();
+              
+              return sellerLocations.some(location => 
+                locationLower?.startsWith(`${location}|`.toLowerCase()) || 
+                locationLower === location.toLowerCase()
+              );
+            });
+            
+            console.log(`DEBUG: Found ${matchingUsers.length} users matching locations:`, sellerLocations.length > 0 ? sellerLocations : 'no location');
+            matchingUsers.forEach(user => {
+              console.log(`DEBUG: Matching user ${user.username} (${user.id}) has location: ${user.location}`);
+            });
+          } catch (error) {
+            console.error('DEBUG: Error checking user locations:', error);
+          }
+        }, 0);
+      }
     }
 
     let listings;
@@ -703,6 +916,56 @@ export async function GET(request: NextRequest) {
           { error: 'Invalid listing type' },
           { status: 400 }
         );
+    }
+
+    // Debug the results if we're filtering by location
+    if (process.env.NODE_ENV === 'development' && sellerLocations.length > 0) {
+      console.log(`DEBUG: Query returned ${listings.length} listings with location filters:`, sellerLocations);
+      if (listings.length > 0) {
+        console.log('DEBUG: User locations in results:', listings.map(l => l.user?.location || 'no location'));
+      }
+      
+      // Try a direct query with just the location filter to see if it works
+      setTimeout(async () => {
+        try {
+          // Get all listings with users who have the specified location
+          const testQuery = await prisma.listing.findMany({
+            where: {
+              user: {
+                OR: sellerLocations.flatMap(location => [
+                  // Match exact country code at start of string followed by pipe
+                  { location: { startsWith: `${location}|`, mode: 'insensitive' as const } },
+                  // Also match if it's exactly equal to the country code (unlikely but possible)
+                  { location: { equals: location, mode: 'insensitive' as const } }
+                ])
+              }
+            },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                  location: true
+                }
+              }
+            }
+          });
+          
+          console.log(`DEBUG: Direct location query found ${testQuery.length} listings`);
+          if (testQuery.length > 0) {
+            console.log('DEBUG: Direct query results:', testQuery.map(l => ({
+              listingId: l.id,
+              userId: l.userId,
+              username: l.user?.username || 'unknown',
+              location: l.user?.location || 'unknown'
+            })));
+          } else {
+            console.log('DEBUG: No listings found with direct location query');
+          }
+        } catch (error) {
+          console.error('DEBUG: Error in direct location query:', error);
+        }
+      }, 0);
     }
 
     // Transform the data to match ListingWithFavorite type

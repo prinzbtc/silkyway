@@ -1,6 +1,6 @@
 'use client';
 
-import { FC, useEffect } from 'react';
+import { FC, useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import {
   Select,
@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { categories } from '@/lib/constants';
+import { BrandCategories } from '@/lib/brands';
 import { useSearch } from '@/context/SearchProvider';
 
 // Sort options for listings
@@ -40,20 +41,89 @@ const regions = [
   { value: 'oc', label: 'Oceania' },
 ];
 
-// Popular brands
-const popularBrands = [
-  { value: 'nike', label: 'Nike' },
-  { value: 'adidas', label: 'Adidas' },
-  { value: 'apple', label: 'Apple' },
-  { value: 'samsung', label: 'Samsung' },
-  { value: 'sony', label: 'Sony' },
+// Import CountrySelect value type and LocationSelect component
+import { CountrySelectValue } from '@/components/ui/country-select';
+import LocationSelect from '@/components/search/LocationSelect';
+import BrandSelect, { BrandOption } from '@/components/search/BrandSelect';
+
+// Initial popular brands (will be supplemented with database brands)
+const initialPopularBrands = [
+  { value: 'Nike', label: 'Nike' },
+  { value: 'Adidas', label: 'Adidas' },
+  { value: 'Apple', label: 'Apple' },
+  { value: 'Samsung', label: 'Samsung' },
+  { value: 'Sony', label: 'Sony' },
 ];
+
+// Log the initial popular brands for debugging
+console.log('Initial popular brands:', initialPopularBrands);
 
 interface SearchFiltersProps {
   className?: string;
 }
 
 export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
+  // State for brands fetched from the database
+  const [popularBrands, setPopularBrands] = useState(initialPopularBrands);
+  const [isLoadingBrands, setIsLoadingBrands] = useState(false);
+  
+  // Fetch brands from the database when the component mounts
+  useEffect(() => {
+    async function fetchBrands() {
+      setIsLoadingBrands(true);
+      try {
+        const response = await fetch('/api/brands');
+        if (!response.ok) {
+          throw new Error('Failed to fetch brands');
+        }
+        
+        const brandsByCategory = await response.json();
+        
+        // Create a set of unique brand names from all categories
+        const brandSet = new Set<string>();
+        // Add type assertion to handle the unknown type from Object.values
+        Object.values(brandsByCategory).forEach((brands) => {
+          // Ensure brands is treated as a string array
+          if (Array.isArray(brands)) {
+            brands.forEach(brand => {
+              if (typeof brand === 'string') {
+                brandSet.add(brand);
+              }
+            });
+          }
+        });
+        
+        // Convert to the format needed for the select component
+        const brandOptions = Array.from(brandSet).map(brand => {
+          console.log(`Processing brand from database: ${brand}`);
+          return {
+            value: brand, // Keep original case to match database values
+            label: brand
+          };
+        });
+        
+        // Combine with initial popular brands, ensuring no duplicates
+        const combinedBrands = [...initialPopularBrands];
+        brandOptions.forEach(option => {
+          if (!combinedBrands.some(b => b.value === option.value)) {
+            combinedBrands.push(option);
+          }
+        });
+        
+        // Sort alphabetically by label
+        combinedBrands.sort((a, b) => a.label.localeCompare(b.label));
+        
+        setPopularBrands(combinedBrands);
+      } catch (error) {
+        console.error('Error fetching brands:', error);
+        // Fall back to initial popular brands
+      } finally {
+        setIsLoadingBrands(false);
+      }
+    }
+    
+    fetchBrands();
+  }, []);
   const { 
     filters, 
     setFilter, 
@@ -100,7 +170,9 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
           
           {filters.brand && (
             <Badge variant="outline" className="flex items-center gap-1">
-              Brand: {filters.brand}
+              Brand: {Array.isArray(filters.brand) 
+                ? `${filters.brand.length} ${filters.brand.length === 1 ? 'brand' : 'brands'} selected` 
+                : filters.brand}
               <button 
                 onClick={() => setFilter('brand', undefined)}
                 className="ml-1 hover:text-destructive"
@@ -153,6 +225,22 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
             </Badge>
           )}
           
+          {filters.sellerLocation && (
+            <Badge variant="outline" className="flex items-center gap-1">
+              Seller Location: {
+                Array.isArray(filters.sellerLocation) 
+                  ? `${filters.sellerLocation.length} countries` 
+                  : filters.sellerLocation.label
+              }
+              <button 
+                onClick={() => setFilter('sellerLocation', undefined)}
+                className="ml-1 hover:text-destructive"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
+          
           <Button 
             variant="ghost" 
             size="sm" 
@@ -171,6 +259,29 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
             Search
           </label>
           <SearchBar className="w-full" autoFocus />
+        </div>
+        
+        {/* Price Range Filter */}
+        <div className="md:col-span-3">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Price Range ({preferredCurrency})
+          </label>
+          <div className="px-2">
+            <Slider
+              value={[filters.minPrice || 0, filters.maxPrice || maxPrice]}
+              min={0}
+              max={maxPrice}
+              step={Math.max(1, Math.floor(maxPrice / 100))}
+              onValueChange={(value) => {
+                setFilter('minPrice', value[0]);
+                setFilter('maxPrice', value[1]);
+              }}
+            />
+            <div className="mt-2 flex justify-between text-sm text-gray-500">
+              <span>{formatPrice(filters.minPrice || 0, preferredCurrency)}</span>
+              <span>{formatPrice(filters.maxPrice || maxPrice, preferredCurrency)}</span>
+            </div>
+          </div>
         </div>
         
         {/* Category Filter */}
@@ -223,47 +334,38 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Brand
           </label>
-          <Select
-            value={filters.brand || ""}
-            onValueChange={(value) => setFilter('brand', value || undefined)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="All Brands" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">All Brands</SelectItem>
-              {popularBrands.map((brand) => (
-                <SelectItem key={brand.value} value={brand.value}>
-                  {brand.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <BrandSelect
+            value={Array.isArray(filters.brand) ? filters.brand as BrandOption[] : undefined}
+            options={popularBrands}
+            onChange={(value) => {
+              console.log('Brands selected:', value);
+              // Only set the filter if there are brands selected, otherwise set to undefined
+              if (value.length > 0) {
+                setFilter('brand', value);
+              } else {
+                setFilter('brand', undefined);
+              }
+            }}
+            isLoading={isLoadingBrands}
+          />
         </div>
 
-        {/* Price Range Filter */}
-        <div className="md:col-span-3">
+
+
+        {/* Seller Location Filter */}
+        <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Price Range ({preferredCurrency})
+            Seller Location
           </label>
-          <div className="px-2">
-            <Slider
-              value={[filters.minPrice || 0, filters.maxPrice || maxPrice]}
-              min={0}
-              max={maxPrice}
-              step={Math.max(1, Math.floor(maxPrice / 100))}
-              onValueChange={(value) => {
-                setFilter('minPrice', value[0]);
-                setFilter('maxPrice', value[1]);
-              }}
-            />
-            <div className="mt-2 flex justify-between text-sm text-gray-500">
-              <span>{formatPrice(filters.minPrice || 0, preferredCurrency)}</span>
-              <span>{formatPrice(filters.maxPrice || maxPrice, preferredCurrency)}</span>
-            </div>
-          </div>
+          <LocationSelect
+            value={Array.isArray(filters.sellerLocation) ? filters.sellerLocation as CountrySelectValue[] : filters.sellerLocation ? [filters.sellerLocation as CountrySelectValue] : undefined}
+            onChange={(value) => {
+              console.log('Countries selected:', value);
+              setFilter('sellerLocation', value);
+            }}
+          />
         </div>
-
+        
         {/* Delivery Options */}
         <div className="md:col-span-3">
           <label className="block text-sm font-medium text-gray-700 mb-2">
