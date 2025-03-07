@@ -21,6 +21,7 @@ export interface SearchFilters {
   noDelivery?: boolean;
   handDelivery?: boolean;
   postalService?: boolean;
+  searchMode?: 'listings' | 'users';
 }
 
 // Define the context type
@@ -53,6 +54,7 @@ const DEFAULT_FILTERS: SearchFilters = {
   noDelivery: false,
   handDelivery: false,
   postalService: false,
+  searchMode: 'listings',
 };
 
 // Provider props
@@ -127,6 +129,7 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
     const noDelivery = searchParams.get('noDelivery') === 'true';
     const handDelivery = searchParams.get('handDelivery') === 'true';
     const postalService = searchParams.get('postalService') === 'true';
+    const searchMode = searchParams.get('searchMode') || 'listings';
 
     setFiltersState({
       category,
@@ -140,35 +143,11 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
       noDelivery,
       handDelivery,
       postalService,
+      searchMode: searchMode === 'listings' || searchMode === 'users' 
+        ? searchMode as 'listings' | 'users' 
+        : 'listings',
     });
   }, [searchParams]);
-
-  // Set a single filter
-  const setFilter = useCallback(<K extends keyof SearchFilters>(key: K, value: SearchFilters[K]) => {
-    // Handle '__all__' value for category and brand
-    if ((key === 'category' || key === 'brand') && value === '__all__') {
-      console.log(`Converting ${key} value '__all__' to undefined`);
-      value = undefined as any;
-    }
-    
-    // Special handling for brand filter
-    if (key === 'brand') {
-      console.log(`Brand filter being set to: ${value}, type: ${typeof value}`);
-      console.log(`Raw brand value: ${JSON.stringify(value)}`);
-    }
-    
-    setFiltersState(prev => {
-      const newFilters = {
-        ...prev,
-        [key]: value
-      };
-      console.log(`New filters state after setting ${key}:`, newFilters);
-      return newFilters;
-    });
-    
-    // Log the filter change for debugging
-    console.log(`Filter changed: ${key} = ${value}`);
-  }, []);
 
   // Set multiple filters at once
   const setFilters = useCallback((newFilters: Partial<SearchFilters>) => {
@@ -193,6 +172,21 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
           continue;
         }
         
+        // Special handling for searchMode
+        if (k === 'searchMode') {
+          const validSearchModes: ('listings' | 'users')[] = ['listings', 'users'];
+          const searchModeValue = value as string | undefined;
+          
+          if (searchModeValue !== undefined && !validSearchModes.includes(searchModeValue as any)) {
+            console.warn(`Invalid searchMode: ${searchModeValue}. Defaulting to 'listings'`);
+            updatedFilters[k] = 'listings' as any;
+          } else {
+            updatedFilters[k] = searchModeValue as any;
+          }
+          hasChanges = true;
+          continue;
+        }
+        
         // For all other cases, only update if different
         if (JSON.stringify(prev[k]) !== JSON.stringify(value)) {
           updatedFilters[k] = value as any; // Use type assertion to avoid TypeScript errors
@@ -200,9 +194,27 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
         }
       }
       
+      // Only return updated state if there are changes
       return hasChanges ? updatedFilters : prev;
     });
   }, []);
+
+  // Set a single filter
+  const setFilter = useCallback(<K extends keyof SearchFilters>(key: K, value: SearchFilters[K]) => {
+    // Handle '__all__' value for category and brand
+    if ((key === 'category' || key === 'brand') && value === '__all__') {
+      console.log(`Converting ${key} value '__all__' to undefined`);
+      value = undefined as any;
+    }
+    
+    // Special handling for brand filter
+    if (key === 'brand') {
+      console.log(`Brand filter being set to: ${value}, type: ${typeof value}`);
+      console.log(`Raw brand value: ${JSON.stringify(value)}`);
+    }
+
+    setFilters({ [key]: value });
+  }, [setFilters]);
 
   // Reset filters to defaults
   const resetFilters = useCallback(() => {
@@ -237,8 +249,20 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
     // Add filter params to URL
     setParamIfNeeded('category', filters.category ? filters.category : null);
     setParamIfNeeded('sort', filters.sort && filters.sort !== DEFAULT_FILTERS.sort ? filters.sort : null);
-    setParamIfNeeded('minPrice', filters.minPrice !== DEFAULT_FILTERS.minPrice ? filters.minPrice!.toString() : null);
-    setParamIfNeeded('maxPrice', filters.maxPrice ? filters.maxPrice.toString() : null);
+    
+    // Safely handle minPrice
+    if (filters.minPrice !== undefined && filters.minPrice !== null && filters.minPrice !== DEFAULT_FILTERS.minPrice) {
+      setParamIfNeeded('minPrice', filters.minPrice.toString());
+    } else {
+      setParamIfNeeded('minPrice', null);
+    }
+    
+    // Safely handle maxPrice
+    if (filters.maxPrice !== undefined && filters.maxPrice !== null) {
+      setParamIfNeeded('maxPrice', filters.maxPrice.toString());
+    } else {
+      setParamIfNeeded('maxPrice', null);
+    }
     
     // Handle brand which could be a string or array of BrandOption
     if (filters.brand) {
@@ -277,6 +301,7 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
     setParamIfNeeded('noDelivery', filters.noDelivery ? 'true' : null);
     setParamIfNeeded('handDelivery', filters.handDelivery ? 'true' : null);
     setParamIfNeeded('postalService', filters.postalService ? 'true' : null);
+    setParamIfNeeded('searchMode', filters.searchMode || null);
     
     // Only update URL if there are actual changes
     if (hasChanges) {
