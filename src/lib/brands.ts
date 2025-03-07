@@ -4,6 +4,14 @@ import { z } from 'zod';
 import { categories } from './categories';
 import type { Category } from './categories';
 
+// Add global declaration for TypeScript
+declare global {
+  var extendedBrandCategories: Record<string, string[]>;
+}
+
+// Helper type to extract the element type from a readonly array
+type ElementType<T extends readonly any[]> = T extends readonly (infer U)[] ? U : never;
+
 // Define brand categories
 export const BRAND_CATEGORIES = {
   automobiles: ['Toyota', 'BMW', 'Mercedes-Benz', 'Honda', 'Ford'] as const,
@@ -31,6 +39,8 @@ const brandSchema = z.object({
 
 // Brand management service
 export const BrandService = {
+  // Expose BRAND_CATEGORIES for direct access
+  BRAND_CATEGORIES,
   // Validate brand input
   validateBrand: (brand: string, category: string) => {
     return brandSchema.parse({ name: brand, category });
@@ -68,6 +78,53 @@ export const BrandService = {
         userId
       }
     });
+  },
+
+  // Add a brand to the static BRAND_CATEGORIES list
+  addToStaticList: (name: string, category: BrandCategories): boolean => {
+    // Check if the category exists
+    if (!(category in BRAND_CATEGORIES)) {
+      return false;
+    }
+    
+    // Check if the brand already exists in the static list
+    // Use Array.prototype.includes with a type assertion to handle readonly arrays
+    const brandArray = BRAND_CATEGORIES[category];
+    const brandExists = Array.prototype.includes.call(brandArray, name);
+    if (brandExists) {
+      return true; // Already exists, no need to add
+    }
+    
+    try {
+      // Create a mutable copy of the brands array and add the new brand
+      // We're using a global variable to store the extended brand lists
+      if (!global.extendedBrandCategories) {
+        global.extendedBrandCategories = {};
+      }
+      
+      if (!global.extendedBrandCategories[category]) {
+        // Initialize with the original readonly array converted to a mutable array
+        // Use Array.from to convert the readonly array to a mutable string array
+        global.extendedBrandCategories[category] = Array.from(BRAND_CATEGORIES[category] as readonly string[]);
+      }
+      
+      // Add the new brand to our extended list
+      global.extendedBrandCategories[category].push(name);
+      
+      // Override the getter for this category in BRAND_CATEGORIES
+      Object.defineProperty(BRAND_CATEGORIES, category, {
+        get: function() {
+          return global.extendedBrandCategories[category];
+        },
+        enumerable: true,
+        configurable: true
+      });
+      
+      return true;
+    } catch (error) {
+      console.error(`Error adding brand ${name} to category ${category}:`, error);
+      return false;
+    }
   },
 
   // Get brands for a specific category

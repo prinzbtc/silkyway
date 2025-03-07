@@ -62,19 +62,21 @@ export function CountrySelect({ value, onChange }: CountrySelectProps) {
         </div>
       )}
       classNames={{
-        control: () => 'p-2 border-2 dark:bg-[hsl(222.2,84%,4.9%)] dark:text-white',
-        input: () => 'text-lg dark:text-white',
-        option: () => 'text-lg dark:text-white',
-        menu: () => 'dark:bg-[hsl(222.2,84%,4.9%)]',
-        singleValue: () => 'dark:text-white',
+        control: () => 'p-2 border rounded-md text-sm dark:bg-[hsl(222.2,84%,4.9%)] dark:text-white',
+        input: () => 'text-sm dark:text-white',
+        option: () => 'text-sm dark:text-white',
+        menu: () => 'rounded-md shadow-md mt-1 dark:bg-[hsl(222.2,84%,4.9%)]',
+        singleValue: () => 'text-sm dark:text-white',
+        placeholder: () => 'text-sm text-gray-500',
+        indicatorSeparator: () => 'hidden',
       }}
       theme={(theme) => ({
         ...theme,
-        borderRadius: 6,
+        borderRadius: 4,
         colors: {
           ...theme.colors,
-          primary: 'black',
-          primary25: '#ffe4e6',
+          primary: 'hsl(222.2, 47.4%, 11.2%)',
+          primary25: 'hsl(210, 40%, 96.1%)',
           neutral0: 'var(--background)',  // Background color
           neutral80: 'var(--foreground)', // Text color
         },
