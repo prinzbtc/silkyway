@@ -34,6 +34,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { normalizeCurrency } from "@/lib/price"
 import { MediaFile, MediaType, MediaProcessingStatus } from "@/types/media"
+import { LoadingDialog } from "@/components/ui/loading-dialog"
+import { ListingCard } from "@/components/listings/ListingCard"
 
 interface EditListingFormProps {
   listingId: string
@@ -120,7 +122,10 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
   const { toast } = useToast()
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [updatedListing, setUpdatedListing] = useState<any>(null)
   const [existingMedia, setExistingMedia] = useState<MediaFile[]>([])
   const [newMedia, setNewMedia] = useState<MediaFile[]>([])
   // Set mediaProcessingComplete to true by default for existing listings
@@ -325,20 +330,23 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
   const onSubmit = async (data: FormValues) => {
     // Debug log for form values on submission
     console.log('Form values on submission:', data);
+    console.log('Form is submitting - onSubmit function called');
     
-    // If a brand is provided and it's not in the list, add it
+    // If a brand is provided, check if it needs to be added to the system
     if (data.brand && data.category) {
       const categoryBrands = BRAND_CATEGORIES[data.category as BrandCategories] || [];
       const brandsList = Array.isArray(categoryBrands) ? categoryBrands : [];
       
       // Type-safe brand check
       const isValidBrand = brandsList.some(
-        (existingBrand) => existingBrand === data.brand
+        (existingBrand) => existingBrand.toLowerCase() === data.brand?.toLowerCase()
       );
 
+      // If the brand doesn't exist in our static list, add it to the system
       if (!isValidBrand) {
+        console.log(`Adding new brand "${data.brand}" to category "${data.category}"`);
         try {
-          await fetch('/api/brands', {
+          const response = await fetch('/api/brands', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -348,8 +356,35 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
               brand: data.brand,
             }),
           });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            console.error('Failed to add brand:', errorData);
+            toast({
+              title: "Warning",
+              description: "Could not add the new brand to the system. The listing will still be created.",
+              variant: "destructive"
+            });
+          } else {
+            console.log('Brand added successfully');
+            // Add to local BRAND_CATEGORIES for immediate UI update
+            // We'll use the BrandService utility function instead of directly modifying the array
+            if (data.category in BRAND_CATEGORIES) {
+              // Import the BrandService function dynamically to avoid circular dependencies
+              import('@/lib/brands').then(({ BrandService }) => {
+                BrandService.addToStaticList(data.brand!, data.category as BrandCategories);
+              }).catch(err => {
+                console.error('Error importing BrandService:', err);
+              });
+            }
+          }
         } catch (error) {
           console.error('Error adding brand:', error);
+          toast({
+            title: "Warning",
+            description: "Could not add the new brand to the system due to a network error. The listing will still be created.",
+            variant: "destructive"
+          });
         }
       }
     }
@@ -366,14 +401,14 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
       )
     );
 
-    if (pendingMedia.length > 0 && !mediaProcessingComplete) {
+    if (pendingMedia.length > 0) {
       toast({
         title: 'Media processing',
-        description: 'Please wait while we process your media files',
+        description: 'Your media files are still processing, but we will save your changes',
       });
       
-      // Don't proceed with submission until media processing is complete
-      return;
+      // Continue with submission even if media is still processing
+      // The MediaProcessingTracker will handle updating the status
     }
 
     // Check for failed media, but ignore temp files which haven't been processed yet
@@ -390,6 +425,9 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
     }
 
     try {
+      // Show loading dialog
+      setIsSaving(true);
+      
       // Process any temporary media files before submitting
       const tempMedia = allMedia.filter(m => m.id && m.id.startsWith('temp-'));
       if (tempMedia.length > 0) {
@@ -438,31 +476,79 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
       // data.media = processedMediaWithServerUrls.filter(m => !m.id?.startsWith('temp-'));
       // data.existingMedia = processedMediaWithServerUrls.filter(m => !m.id?.startsWith('temp-'));
 
-      const response = await fetch(`/api/listings/${listingId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(dataToSubmit),
-      });
+      console.log('Sending request to update listing with data:', JSON.stringify(dataToSubmit));
+      
+      try {
+        const response = await fetch(`/api/listings/${listingId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(dataToSubmit),
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to update listing');
+        console.log('Update response status:', response.status);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Server error response:', errorText);
+          throw new Error(`Failed to update listing: ${response.status} ${errorText}`);
+        }
+        
+        const responseData = await response.json();
+        console.log('Update response data:', responseData);
+      } catch (fetchError) {
+        console.error('Fetch error during listing update:', fetchError);
+        throw fetchError;
+      }
+      
+      // Fetch the updated listing with user data for the success dialog
+      try {
+        const listingResponse = await fetch(`/api/listings/${listingId}`);
+        if (listingResponse.ok) {
+          const completeListingData = await listingResponse.json();
+          setUpdatedListing(completeListingData);
+        }
+      } catch (error) {
+        console.error('Error fetching complete listing data:', error);
+      }
+      
+      // Invalidate all caches to ensure the updated listing appears everywhere
+      try {
+        console.log('Invalidating all listing caches');
+        const invalidateResponse = await fetch('/api/cache/invalidate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ type: 'all' }),
+        });
+        
+        if (invalidateResponse.ok) {
+          console.log('Cache invalidation successful');
+        } else {
+          console.error('Cache invalidation failed:', await invalidateResponse.text());
+        }
+      } catch (error) {
+        console.error('Error invalidating caches:', error);
       }
 
+      // Hide loading dialog and show success dialog
+      setIsSaving(false);
+      setShowSuccessDialog(true);
+      
       toast({
         title: "Success",
         description: "Listing updated successfully",
-      })
-
-      router.push(`/listings/${listingId}`)
+      });
     } catch (error) {
       console.error('Error updating listing:', error);
+      setIsSaving(false);
       toast({
         title: "Error",
         description: "Failed to update listing",
         variant: "destructive"
-      })
+      });
     }
   }
 
@@ -578,7 +664,13 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
           </div>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+            <form onSubmit={(e) => {
+              console.log('Form submit event triggered');
+              form.handleSubmit((data) => {
+                console.log('Form handleSubmit callback triggered');
+                onSubmit(data);
+              })(e);
+            }} className="space-y-8">
               <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -662,6 +754,7 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
                           value={field.value || ""}
                           onChange={field.onChange}
                           suggestions={Array.from(BRAND_CATEGORIES[form.watch("category") as BrandCategories] || [])}
+                          category={form.watch("category") as BrandCategories}
                           placeholder="Start typing to see suggestions"
                         />
                       </FormControl>
@@ -930,14 +1023,22 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
                     Cancel
                   </Button>
                   <Button 
-                    type="submit"
+                    type="button"
+                    onClick={() => {
+                      console.log('Save button clicked manually');
+                      console.log('Form validation state:', form.formState);
+                      console.log('Form errors:', form.formState.errors);
+                      
+                      // Manually trigger form submission
+                      const data = form.getValues();
+                      console.log('Manual form submission with data:', data);
+                      onSubmit(data);
+                    }}
                     disabled={
                       !form.watch('category') || 
                       !form.watch('title') || 
                       form.watch('title')?.length > 40 || 
                       form.formState.isSubmitting ||
-                      // Only check non-temporary media files for processing status
-                      (newMedia.filter(m => m.id && !m.id.startsWith('temp-')).length > 0 && !mediaProcessingComplete) ||
                       processingFailed
                     }
                   >
@@ -985,6 +1086,79 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
               {isLoading ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Loading Dialog */}
+      <LoadingDialog
+        open={isSaving}
+        title="Updating Your Listing"
+        description="Please wait while we process your changes"
+      />
+
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="max-w-4xl p-0 overflow-hidden">
+          <div className="flex flex-col md:flex-row">
+            {/* Listing Card Preview - Left Side */}
+            <div className="w-full md:w-1/2 bg-muted/20">
+              {updatedListing ? (
+                <div className="p-4 h-full flex items-center justify-center">
+                  <div className="w-full max-w-sm">
+                    <ListingCard listing={updatedListing} />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 h-full flex items-center justify-center">
+                  <div className="animate-pulse flex flex-col space-y-4 w-full max-w-sm">
+                    <div className="rounded-lg bg-gray-200 h-64 w-full"></div>
+                    <div className="h-6 bg-gray-200 rounded w-3/4"></div>
+                    <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                    <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Content - Right Side */}
+            <div className="w-full md:w-1/2 p-6 flex flex-col">
+              <DialogHeader className="text-left mb-6">
+                <DialogTitle className="text-2xl">Success!</DialogTitle>
+                <DialogDescription className="text-base mt-2">
+                  Your listing has been successfully updated on Silkyway.
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="mt-auto space-y-4">
+                <div className="flex flex-col space-y-2">
+                  <h4 className="text-sm font-medium">What's next?</h4>
+                  <ul className="text-sm text-muted-foreground space-y-1 list-disc pl-5">
+                    <li>Share your updated listing on social media</li>
+                    <li>Add more listings to your shop</li>
+                    <li>Check your dashboard for activity</li>
+                  </ul>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-6">
+                  <Button variant="outline" onClick={() => {
+                    setShowSuccessDialog(false);
+                    router.push('/dashboard');
+                  }} className="sm:flex-1">
+                    Go to Dashboard
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      setShowSuccessDialog(false);
+                      router.push(`/listings/${listingId}`);
+                    }}
+                    className="sm:flex-1"
+                  >
+                    View Listing
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
