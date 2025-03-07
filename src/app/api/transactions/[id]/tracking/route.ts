@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const session = await getSession();
@@ -19,7 +19,10 @@ export async function PUT(
 
     // Get the transaction and verify the user is the seller
     const transaction = await prisma.transaction.findUnique({
-      where: { id: params.id },
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      where: { id: id },
       include: {
         listing: {
           select: {
@@ -45,7 +48,7 @@ export async function PUT(
 
     // Update the tracking number
     const updatedTransaction = await prisma.transaction.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         trackingNumber,
       },

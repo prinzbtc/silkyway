@@ -3,12 +3,16 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
+    // Properly await the params object before destructuring
+    const params = await context.params;
+    const userId: string = params.id;
+    
     const ratings = await prisma.review.findMany({
       where: {
-        receiverId: params.id,
+        receiverId: userId,
       },
       select: {
         id: true,

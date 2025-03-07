@@ -13,7 +13,7 @@ const VALID_PERMISSIONS = [
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -42,7 +42,10 @@ export async function PATCH(
 
     // Get target admin to update
     const targetAdmin = await prisma.user.findUnique({
-      where: { id: params.id },
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      where: { id: id },
     });
 
     if (!targetAdmin) {
@@ -58,7 +61,7 @@ export async function PATCH(
 
     // Update admin permissions by storing them in notificationPreferences
     const updatedUser = await prisma.user.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         notificationPreferences: {
           adminPermissions: permissions

@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 // Delete admin
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -16,7 +16,10 @@ export async function DELETE(
 
     // Get admin to remove
     const admin = await prisma.user.findUnique({
-      where: { id: params.id },
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      where: { id: id },
     });
 
     if (!admin) {
@@ -30,7 +33,7 @@ export async function DELETE(
 
     // Remove admin role
     const updatedUser = await prisma.user.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         adminRole: null,
         adminSince: null,

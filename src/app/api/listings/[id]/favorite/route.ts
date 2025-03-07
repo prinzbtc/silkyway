@@ -6,7 +6,7 @@ import type { SessionData } from '@/types/session';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const session = await getSession();
@@ -17,6 +17,9 @@ export async function POST(
       );
     }
 
+    // Extract and await the id parameter
+    // Properly await the params object before destructuring
+    const params = await context.params;
     const id = params.id;
 
     // Check if listing exists

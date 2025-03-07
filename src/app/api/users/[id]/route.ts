@@ -3,12 +3,16 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
+    // Properly await the params object before destructuring
+    const params = await context.params;
+    const userId: string = params.id;
+    
     // Get user with their listings and reviews count
     const user = await prisma.user.findUnique({
-      where: { id: params.id },
+      where: { id: userId },
       select: {
         id: true,
         username: true,

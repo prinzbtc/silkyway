@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -15,7 +15,10 @@ export async function POST(
 
     // Get report details with related listing
     const report = await prisma.report.findUnique({
-      where: { id: params.id },
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      where: { id: id },
       include: {
         listing: {
           include: {
@@ -38,7 +41,7 @@ export async function POST(
     const updatedReport = await prisma.$transaction(async (tx) => {
       // Update report status
       const report = await tx.report.update({
-        where: { id: params.id },
+        where: { id: id },
         data: {
           status: 'resolved',
           updatedAt: new Date(),

@@ -9,7 +9,7 @@ import { EscrowService } from '@/lib/escrow/escrow';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const session = await getSession();
@@ -22,7 +22,10 @@ export async function POST(
 
     // Get the transaction and verify the user is the seller
     const transaction = await prisma.transaction.findUnique({
-      where: { id: params.id },
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      where: { id: id },
       include: {
         listing: {
           include: {
@@ -90,7 +93,7 @@ export async function POST(
 
     // Update transaction status and transform listing
     const updatedTransaction = await prisma.transaction.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         status: 'cancelled',
         updatedAt: new Date(), // Use updatedAt instead of cancelledAt

@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Check admin authentication
@@ -26,7 +26,10 @@ export async function PATCH(
 
     // Get admin to update
     const targetAdmin = await prisma.user.findUnique({
-      where: { id: params.id },
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      where: { id: id },
     });
 
     if (!targetAdmin) {
@@ -40,7 +43,7 @@ export async function PATCH(
 
     // Update admin role
     const updatedUser = await prisma.user.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         adminRole: role,
       },

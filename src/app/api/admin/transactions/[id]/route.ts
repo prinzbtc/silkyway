@@ -4,7 +4,7 @@ import { TransactionService } from '@/lib/transactions/service';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -14,7 +14,10 @@ export async function GET(
     }
 
     const transactionService = TransactionService.getInstance();
-    const transaction = await transactionService.getTransactionById(params.id);
+    // Properly await the params object before destructuring
+    const params = await context.params;
+    const id = params.id;
+    const transaction = await transactionService.getTransactionById(id);
 
     if (!transaction) {
       return new NextResponse('Transaction not found', { status: 404 });
@@ -29,7 +32,7 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -41,7 +44,7 @@ export async function PATCH(
     const { status } = await request.json();
 
     const transactionService = TransactionService.getInstance();
-    const updatedTransaction = await transactionService.updateTransactionStatus(params.id, status);
+    const updatedTransaction = await transactionService.updateTransactionStatus(id, status);
 
     return NextResponse.json(updatedTransaction);
   } catch (error) {

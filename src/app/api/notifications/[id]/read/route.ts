@@ -5,7 +5,7 @@ import { redis } from '@/lib/redis';
 
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   const session = await getSession();
   if (!session?.user?.id) {
@@ -14,7 +14,10 @@ export async function POST(
 
   const notification = await prisma.notification.update({
     where: {
-      id: params.id,
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      id: id,
       userId: session.user.id,
     },
     data: {

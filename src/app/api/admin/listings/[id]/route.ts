@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -14,7 +14,10 @@ export async function GET(
     }
 
     const listing = await prisma.listing.findUnique({
-      where: { id: params.id },
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      where: { id: id },
       include: {
         user: true,
         reports: {
@@ -48,7 +51,7 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -61,7 +64,7 @@ export async function PATCH(
       await request.json();
 
     const updatedListing = await prisma.listing.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         title,
         description,
@@ -99,7 +102,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -110,7 +113,7 @@ export async function DELETE(
 
     // Delete listing and all related data
     await prisma.listing.delete({
-      where: { id: params.id },
+      where: { id: id },
     });
 
     return new NextResponse(null, { status: 204 });

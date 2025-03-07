@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
         bio: true,
         walletAddress: true,
         createdAt: true,
+        location: true,
       },
     });
 

@@ -5,7 +5,7 @@ import { EscrowService } from '@/services/EscrowService';
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Verify admin session
@@ -16,7 +16,10 @@ export async function POST(
 
     // Get escrow details
     const escrow = await prisma.transaction.findUnique({
-      where: { id: params.id },
+      // Properly await the params object before destructuring
+      const params = await context.params;
+      const id = params.id;
+      where: { id: id },
       include: {
         escrow: true,
         seller: true,
