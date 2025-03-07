@@ -146,7 +146,12 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
   }, [maxPriceError]);
 
   const handleSearchModeChange = (mode: 'listings' | 'users') => {
+    console.log(`Switching search mode to: ${mode}`);
+    
     setFilters({
+      // Keep search query
+      q: filters.q,
+      // Set new search mode
       searchMode: mode,
       // Reset filters when switching modes
       category: undefined,
@@ -156,6 +161,16 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
       noDelivery: undefined,
       handDelivery: undefined,
       postalService: undefined,
+      // Keep region and location filters for both modes
+      region: filters.region,
+      sellerLocation: filters.sellerLocation
+    });
+    
+    console.log('Search mode changed, new filters:', {
+      searchMode: mode,
+      q: filters.q,
+      region: filters.region,
+      sellerLocation: filters.sellerLocation
     });
   };
 
@@ -464,38 +479,7 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
               variant="minimal"
             />
           </div>
-          <div className="flex space-x-4">
-            <div className="flex-1">
-              <Label className="mb-2 block text-sm font-medium text-gray-700">Region</Label>
-              <RegionSelect
-                value={filters.region}
-                onChange={(regionValue, countries) => {
-                  console.log('Region selected:', regionValue);
-                  console.log('Countries in region:', countries);
-                  
-                  // Update both region and sellerLocation together
-                  setFilters({
-                    region: regionValue,
-                    sellerLocation: countries
-                  });
-                }}
-              />
-            </div>
-            <div className="flex-1">
-              <Label className="mb-2 block text-sm font-medium text-gray-700">Location</Label>
-              <LocationSelect
-                value={Array.isArray(filters.sellerLocation) ? filters.sellerLocation as CountrySelectValue[] : filters.sellerLocation ? [filters.sellerLocation as CountrySelectValue] : undefined}
-                onChange={(value) => {
-                  console.log('Countries selected:', value);
-                  // When manually selecting countries, clear any region filter
-                  setFilters({
-                    region: undefined,
-                    sellerLocation: value
-                  });
-                }}
-              />
-            </div>
-          </div>
+          {/* Region and Location filters have been removed */}
         </div>
       )}
     </div>

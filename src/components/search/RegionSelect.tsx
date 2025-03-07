@@ -83,6 +83,7 @@ const RegionSelect: FC<RegionSelectProps> = ({ value, onChange }) => {
   // Handle region selection
   const handleRegionChange = (regionValue: string) => {
     if (!regionValue || regionValue === '__all__') {
+      console.log('Clearing region selection');
       onChange(undefined, undefined);
       return;
     }
@@ -96,11 +97,20 @@ const RegionSelect: FC<RegionSelectProps> = ({ value, onChange }) => {
 
     // Get all countries in this region
     const regionCountries = selectedRegion.countries;
+    console.log(`Found ${regionCountries.length} countries in region ${regionValue}`);
     
     // Map country codes to CountrySelectValue objects
     const selectedCountries = regionCountries
-      .map(code => countryOptions.find(country => country.value === code))
+      .map(code => {
+        const country = countryOptions.find(country => country.value === code);
+        if (!country) {
+          console.warn(`Country not found for code: ${code}`);
+        }
+        return country;
+      })
       .filter(country => country !== undefined) as CountrySelectValue[];
+
+    console.log(`Mapped ${selectedCountries.length} countries for region ${regionValue}`);
 
     // Call onChange with both the region value and the selected countries
     onChange(regionValue, selectedCountries);

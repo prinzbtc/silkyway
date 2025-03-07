@@ -1,11 +1,13 @@
-import { FC } from 'react';
+import { FC, useEffect } from 'react';
 import { useUsers } from '@/hooks/user/useUsers';
 import SmallProfileCard from '@/components/user/SmallProfileCard';
 import { CountrySelectValue } from '@/types/country';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useSearch } from '@/context/SearchProvider';
 
 const UserResults: FC = () => {
+  const { filters } = useSearch();
   const { 
     users, 
     pagination, 
@@ -13,6 +15,16 @@ const UserResults: FC = () => {
     error, 
     fetchUsers 
   } = useUsers();
+  
+  // Fetch users when search query changes
+  useEffect(() => {
+    if (filters.searchMode === 'users') {
+      console.log('UserResults - Current search query:', filters.q);
+      
+      // Fetch users with current search query
+      fetchUsers(1);
+    }
+  }, [filters.q, filters.searchMode, fetchUsers]);
 
   // Helper to parse location string to CountrySelectValue
   const parseLocation = (locationStr: string | null): CountrySelectValue | null => {

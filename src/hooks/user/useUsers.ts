@@ -26,6 +26,16 @@ export const useUsers = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Log when the hook is initialized or filters change
+  useEffect(() => {
+    console.log('useUsers hook - current filters:', {
+      searchMode: filters.searchMode,
+      q: filters.q,
+      region: filters.region,
+      sellerLocation: filters.sellerLocation
+    });
+  }, [filters]);
 
   const fetchUsers = useCallback(async (page = 1) => {
     setIsLoading(true);
@@ -38,26 +48,25 @@ export const useUsers = () => {
       // Add search query if present
       if (filters.q) params.append('q', filters.q);
       
-      // Add region filter if present
-      if (filters.region) params.append('region', filters.region);
-      
-      // Add seller location filter if present
-      if (filters.sellerLocation) {
-        params.append('sellerLocation', JSON.stringify(filters.sellerLocation));
-      }
+      // Region and sellerLocation filters have been removed
 
       // Add pagination parameters
       params.append('page', page.toString());
       params.append('limit', '20');
 
+      console.log('Fetching users with params:', params.toString());
+
       // Fetch users
       const response = await fetch(`/api/users?${params.toString()}`);
       
       if (!response.ok) {
-        throw new Error('Failed to fetch users');
+        const errorText = await response.text();
+        console.error(`API error (${response.status}):`, errorText);
+        throw new Error(`Failed to fetch users: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
+      console.log('Received user data:', data);
 
       // Update users and pagination state
       setUsers(data.users);
@@ -67,17 +76,21 @@ export const useUsers = () => {
         totalUsers: data.pagination.totalUsers
       });
     } catch (err) {
+      console.error('Error fetching users:', err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
       setUsers([]);
     } finally {
       setIsLoading(false);
     }
-  }, [filters]);
+  }, [filters.q]);
 
-  // Fetch users when filters change
+  // Initial fetch when the hook is first mounted and search mode is 'users'
   useEffect(() => {
-    fetchUsers(1);
-  }, [fetchUsers]);
+    if (filters.searchMode === 'users') {
+      console.log('Initial user fetch on hook mount with search mode = users');
+      fetchUsers(1);
+    }
+  }, [fetchUsers, filters.searchMode]);
 
   return {
     users,
