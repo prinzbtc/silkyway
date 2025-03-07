@@ -13,7 +13,7 @@ interface UseListingsFilters {
   status?: 'active' | 'sold' | 'deleted';
   brand?: string;
   region?: string;
-  sellerLocation?: CountrySelectValue;
+  sellerLocation?: CountrySelectValue | CountrySelectValue[];
   noDelivery?: boolean;
   handDelivery?: boolean;
   postalService?: boolean;
@@ -68,15 +68,17 @@ export function useListings(
               `${filters.brand.length} brands` : filters.brand}` 
           }),
           
-          // Handle seller location (CountrySelectValue object)
+          // Handle seller location (CountrySelectValue object or array)
           ...(filters?.sellerLocation && { 
             sellerLocation: JSON.stringify(filters.sellerLocation),
-            _location_debug: `Seller location filter applied: ${filters.sellerLocation.label}` 
+            _location_debug: `Seller location filter applied: ${Array.isArray(filters.sellerLocation) ? 
+              `${filters.sellerLocation.length} locations` : filters.sellerLocation.label}` 
           }),
           
           // Add additional debug logging for seller location
           _debug_seller_location: filters?.sellerLocation ? 
-            `Raw: ${JSON.stringify(filters.sellerLocation)}, Value: ${filters.sellerLocation.value}` : 
+            `Raw: ${JSON.stringify(filters.sellerLocation)}, Value: ${Array.isArray(filters.sellerLocation) ? 
+              filters.sellerLocation.map(loc => loc.value).join(',') : filters.sellerLocation.value}` : 
             'No seller location filter',
         
           // Log all filters for debugging

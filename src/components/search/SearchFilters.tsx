@@ -31,15 +31,8 @@ const sortOptions = [
   { value: 'most-favorited', label: 'Most Favorited' },
 ];
 
-// Region options
-const regions = [
-  { value: 'eu', label: 'European Union' },
-  { value: 'na', label: 'North America' },
-  { value: 'sa', label: 'South America' },
-  { value: 'as', label: 'Asia' },
-  { value: 'af', label: 'Africa' },
-  { value: 'oc', label: 'Oceania' },
-];
+// Import RegionSelect component
+import RegionSelect, { regions } from '@/components/search/RegionSelect';
 
 // Import CountrySelect value type and LocationSelect component
 import { CountrySelectValue } from '@/components/ui/country-select';
@@ -127,6 +120,7 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
   const { 
     filters, 
     setFilter, 
+    setFilters,
     resetFilters, 
     hasActiveFilters,
     activeFilterCount
@@ -151,6 +145,11 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
 
   return (
     <div className={`bg-white rounded-lg shadow-sm p-4 ${className}`}>
+      {/* Search Bar */}
+      <div className="mb-4">
+        <SearchBar className="w-full" autoFocus />
+      </div>
+
       {/* Active Filters Summary */}
       {hasActiveFilters && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -253,13 +252,7 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Search Bar */}
-        <div className="md:col-span-3">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Search
-          </label>
-          <SearchBar className="w-full" autoFocus />
-        </div>
+
         
         {/* Price Range Filter */}
         <div className="md:col-span-3">
@@ -352,6 +345,26 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
 
 
 
+        {/* Region Filter */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Region
+          </label>
+          <RegionSelect
+            value={filters.region}
+            onChange={(regionValue, countries) => {
+              console.log('Region selected:', regionValue);
+              console.log('Countries in region:', countries);
+              
+              // Use a single operation to update both filters at once
+              setFilters({
+                region: regionValue,
+                sellerLocation: countries
+              });
+            }}
+          />
+        </div>
+
         {/* Seller Location Filter */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -361,7 +374,11 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
             value={Array.isArray(filters.sellerLocation) ? filters.sellerLocation as CountrySelectValue[] : filters.sellerLocation ? [filters.sellerLocation as CountrySelectValue] : undefined}
             onChange={(value) => {
               console.log('Countries selected:', value);
-              setFilter('sellerLocation', value);
+              // When manually selecting countries, clear any region filter and update sellerLocation in one operation
+              setFilters({
+                region: undefined,
+                sellerLocation: value
+              });
             }}
           />
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback, FC, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, FC, ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 // Import CountrySelectValue type
@@ -172,10 +172,36 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
 
   // Set multiple filters at once
   const setFilters = useCallback((newFilters: Partial<SearchFilters>) => {
-    setFiltersState(prev => ({
-      ...prev,
-      ...newFilters
-    }));
+    console.log('Setting multiple filters:', newFilters);
+    
+    setFiltersState(prev => {
+      // Create a new filters object
+      const updatedFilters = { ...prev };
+      let hasChanges = false;
+      
+      // Process each filter
+      for (const [key, value] of Object.entries(newFilters)) {
+        const k = key as keyof SearchFilters;
+        
+        // Special handling for category and brand
+        if ((k === 'category' || k === 'brand') && value === '__all__') {
+          // If we're setting to '__all__', treat it as undefined
+          if (prev[k] !== undefined) {
+            updatedFilters[k] = undefined;
+            hasChanges = true;
+          }
+          continue;
+        }
+        
+        // For all other cases, only update if different
+        if (JSON.stringify(prev[k]) !== JSON.stringify(value)) {
+          updatedFilters[k] = value as any; // Use type assertion to avoid TypeScript errors
+          hasChanges = true;
+        }
+      }
+      
+      return hasChanges ? updatedFilters : prev;
+    });
   }, []);
 
   // Reset filters to defaults
@@ -185,13 +211,34 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
 
   // Sync filters to URL
   const syncFiltersToURL = useCallback(() => {
-    const params = new URLSearchParams();
+    // Get current URL params
+    const currentParams = new URLSearchParams(searchParams.toString());
+    const newParams = new URLSearchParams();
+    let hasChanges = false;
     
-    // Only add params that are not default values
-    if (filters.category) params.set('category', filters.category);
-    if (filters.sort && filters.sort !== DEFAULT_FILTERS.sort) params.set('sort', filters.sort);
-    if (filters.minPrice !== DEFAULT_FILTERS.minPrice) params.set('minPrice', filters.minPrice!.toString());
-    if (filters.maxPrice) params.set('maxPrice', filters.maxPrice.toString());
+    // Helper to check if we need to set a param
+    const setParamIfNeeded = (key: string, value: string | null) => {
+      const currentValue = currentParams.get(key);
+      if (value === null) {
+        // If param should be removed
+        if (currentValue !== null) {
+          hasChanges = true;
+        }
+      } else if (currentValue !== value) {
+        // If param should be added/changed
+        newParams.set(key, value);
+        hasChanges = true;
+      } else {
+        // Keep existing value
+        newParams.set(key, value);
+      }
+    };
+    
+    // Add filter params to URL
+    setParamIfNeeded('category', filters.category ? filters.category : null);
+    setParamIfNeeded('sort', filters.sort && filters.sort !== DEFAULT_FILTERS.sort ? filters.sort : null);
+    setParamIfNeeded('minPrice', filters.minPrice !== DEFAULT_FILTERS.minPrice ? filters.minPrice!.toString() : null);
+    setParamIfNeeded('maxPrice', filters.maxPrice ? filters.maxPrice.toString() : null);
     
     // Handle brand which could be a string or array of BrandOption
     if (filters.brand) {
@@ -199,38 +246,52 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
         // If it's an array of BrandOption, stringify it
         if (filters.brand.length > 0) {
           const brandParam = JSON.stringify(filters.brand);
-          params.set('brand', brandParam);
+          setParamIfNeeded('brand', brandParam);
           console.log(`Setting brand URL param (array): ${brandParam}`);
-          console.log('Brand filter array:', filters.brand);
+        } else {
+          setParamIfNeeded('brand', null);
         }
       } else if (filters.brand !== '__all__') {
         // If it's a string and not the default
-        params.set('brand', filters.brand);
+        setParamIfNeeded('brand', filters.brand);
         console.log(`Setting brand URL param (string): ${filters.brand}`);
+      } else {
+        setParamIfNeeded('brand', null);
       }
+    } else {
+      setParamIfNeeded('brand', null);
     }
     
-    if (filters.q) params.set('q', filters.q);
-    if (filters.region) params.set('region', filters.region);
+    setParamIfNeeded('q', filters.q || null);
+    setParamIfNeeded('region', filters.region || null);
     
-    // Handle sellerLocation (CountrySelectValue object)
+    // Handle sellerLocation (CountrySelectValue object or array)
     if (filters.sellerLocation) {
-      params.set('sellerLocation', JSON.stringify(filters.sellerLocation));
+      const sellerLocationParam = JSON.stringify(filters.sellerLocation);
+      setParamIfNeeded('sellerLocation', sellerLocationParam);
       console.log(`Setting sellerLocation URL param:`, filters.sellerLocation);
+    } else {
+      setParamIfNeeded('sellerLocation', null);
     }
     
-    if (filters.noDelivery) params.set('noDelivery', 'true');
-    if (filters.handDelivery) params.set('handDelivery', 'true');
-    if (filters.postalService) params.set('postalService', 'true');
+    setParamIfNeeded('noDelivery', filters.noDelivery ? 'true' : null);
+    setParamIfNeeded('handDelivery', filters.handDelivery ? 'true' : null);
+    setParamIfNeeded('postalService', filters.postalService ? 'true' : null);
     
-    // Log the URL we're pushing to
-    console.log(`Updating URL: ${pathname}?${params.toString()}`);
-    
-    // Update the URL
-    router.push(`${pathname}?${params.toString()}`);
-  }, [filters, pathname, router]);
+    // Only update URL if there are actual changes
+    if (hasChanges) {
+      const newUrl = `${pathname}?${newParams.toString()}`;
+      console.log(`Updating URL: ${newUrl}`);
+      router.push(newUrl);
+    } else {
+      console.log('No URL changes needed');
+    }
+  }, [filters, pathname, router, searchParams]);
 
-  // Auto-sync filters to URL when they change
+  // Use a ref to store the timeout ID for debouncing
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-sync filters to URL when they change with debouncing
   useEffect(() => {
     // We don't want to update URL on initial load
     const isInitialLoad = !searchParams.toString() && 
@@ -243,8 +304,29 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
     const isExplorePage = pathname.includes('/explore');
     
     if (!isInitialLoad && isExplorePage) {
-      syncFiltersToURL();
+      // Clear any existing timeout
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+      
+      // Store the current filters for comparison
+      const currentFilters = { ...filters };
+      
+      // Set a new timeout to debounce the URL sync
+      syncTimeoutRef.current = setTimeout(() => {
+        // Only sync if filters haven't changed since timeout was set
+        if (JSON.stringify(currentFilters) === JSON.stringify(filters)) {
+          syncFiltersToURL();
+        }
+      }, 300); // Increased debounce time for better performance
     }
+    
+    // Cleanup function to clear the timeout
+    return () => {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+    };
   }, [filters, syncFiltersToURL, searchParams, pathname]);
 
   // Calculate if there are any active filters
