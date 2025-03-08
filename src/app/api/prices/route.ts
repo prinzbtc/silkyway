@@ -16,7 +16,7 @@ async function fetchSolUsdPrice(): Promise<number> {
       headers: {
         'accept': 'application/json',
         'x-chain': 'solana',
-        'X-API-KEY': '46b9f420d1e648189541986d1de7d659'
+        'X-API-KEY': 'xxx'
       },
       next: { revalidate: 30 } // Cache for 30 seconds
     });
