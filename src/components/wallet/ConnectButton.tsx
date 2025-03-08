@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useWalletAuth } from '@/hooks/wallet/useWalletAuth';
 
+
 interface UserProfile {
   username: string | null;
   avatar: string | null;
@@ -26,6 +27,7 @@ export const ConnectButton: FC = () => {
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(Date.now());
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -157,6 +159,37 @@ export const ConnectButton: FC = () => {
       fetchUserProfile();
     }
   }, [connected, publicKey, fetchUserProfile]);
+  
+  // Force a refresh of the avatar image by updating the timestamp
+  const refreshAvatar = useCallback(() => {
+    if (connected && publicKey) {
+      console.log('Forcing avatar refresh');
+      setLastRefreshTime(Date.now());
+      fetchUserProfile();
+    }
+  }, [connected, publicKey, fetchUserProfile]);
+  
+  // Add a polling mechanism to check for profile updates every 15 seconds
+  useEffect(() => {
+    if (!connected || !publicKey) return;
+    
+    // Initial refresh
+    refreshAvatar();
+    
+    // Set up polling
+    const intervalId = setInterval(() => {
+      refreshAvatar();
+    }, 15000); // Check every 15 seconds
+    
+    // Listen for focus events to refresh when tab becomes active
+    const handleFocus = () => refreshAvatar();
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [connected, publicKey, refreshAvatar]);
 
   if (!connected || !publicKey) {
     return (
@@ -179,7 +212,7 @@ export const ConnectButton: FC = () => {
       >
         {userProfile?.avatar ? (
           <Image
-            src={userProfile.avatar}
+            src={`${userProfile.avatar}?t=${lastRefreshTime}`}
             alt="Profile"
             width={24}
             height={24}
