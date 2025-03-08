@@ -70,7 +70,6 @@ const formSchema = z.object({
   }).nonnegative({ message: "Price must be a positive number" }),
   condition: z.string().optional(),
   noDelivery: z.boolean().default(false),
-  handDelivery: z.boolean().default(false),
   postalService: z.boolean().default(false),
   deliveryPrice: z.number().default(0),
   existingMedia: z.array(z.object({
@@ -142,7 +141,6 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
       brand: "",
       price: 0,
       noDelivery: false,
-      handDelivery: false,
       postalService: false,
       deliveryPrice: 0,
       condition: "",
@@ -160,15 +158,13 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
   useEffect(() => {
     // Get current delivery option values
     const noDelivery = form.watch('noDelivery');
-    const handDelivery = form.watch('handDelivery');
     const postalService = form.watch('postalService');
     
     console.log('Delivery options from watch:', { 
       noDelivery, 
-      handDelivery, 
       postalService 
     });
-  }, [form.watch('noDelivery'), form.watch('handDelivery'), form.watch('postalService')]);
+  }, [form.watch('noDelivery'), form.watch('postalService')]);
 
   useEffect(() => {
     const fetchListing = async () => {
@@ -212,7 +208,6 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
         // Define type for delivery options
         interface DeliveryOptions {
           noDelivery: boolean;
-          handDelivery: boolean;
           postalService: boolean;
           deliveryPrice: number;
         }
@@ -239,7 +234,6 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
         // Ensure all delivery option fields exist with proper boolean values
         const processedDeliveryOptions: DeliveryOptions = {
           noDelivery: deliveryOptions.noDelivery === true,
-          handDelivery: deliveryOptions.handDelivery === true,
           postalService: deliveryOptions.postalService === true,
           deliveryPrice: Number(deliveryOptions.deliveryPrice) || 0
         };
@@ -258,7 +252,6 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
           price: listingData.price,
           condition: listingData.condition || "",  // Ensure condition is never null or undefined
           noDelivery: processedDeliveryOptions.noDelivery,
-          handDelivery: processedDeliveryOptions.handDelivery,
           postalService: processedDeliveryOptions.postalService,
           deliveryPrice: processedDeliveryOptions.deliveryPrice,
           existingMedia: media,
@@ -271,7 +264,6 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
         setTimeout(() => {
           // Use setTimeout to ensure the form has been reset before setting values
           form.setValue('noDelivery', processedDeliveryOptions.noDelivery);
-          form.setValue('handDelivery', processedDeliveryOptions.handDelivery);
           form.setValue('postalService', processedDeliveryOptions.postalService);
           console.log('Checkbox values set after timeout');
         }, 0);
@@ -867,37 +859,15 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
                                 field.onChange(boolValue);
                                 // Force update the form value
                                 form.setValue(field.name, boolValue, { shouldValidate: true, shouldDirty: true });
+                                if (boolValue) {
+                                  form.setValue('postalService', false, { shouldValidate: true, shouldDirty: true });
+                                }
                                 console.log(`${field.name} changed to:`, boolValue);
                               }}
                             />
                           </FormControl>
                           <div className="space-y-1 leading-none">
                             <FormLabel>No Delivery (Pickup Only)</FormLabel>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="handDelivery"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value === true}
-                              onCheckedChange={(checked) => {
-                                // Ensure we're setting a boolean value
-                                const boolValue = checked === true;
-                                field.onChange(boolValue);
-                                // Force update the form value
-                                form.setValue(field.name, boolValue, { shouldValidate: true, shouldDirty: true });
-                                console.log(`${field.name} changed to:`, boolValue);
-                              }}
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel>Hand Delivery</FormLabel>
                           </div>
                         </FormItem>
                       )}
@@ -917,6 +887,9 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
                                 field.onChange(boolValue);
                                 // Force update the form value
                                 form.setValue(field.name, boolValue, { shouldValidate: true, shouldDirty: true });
+                                if (boolValue) {
+                                  form.setValue('noDelivery', false, { shouldValidate: true, shouldDirty: true });
+                                }
                                 console.log(`${field.name} changed to:`, boolValue);
                               }}
                             />
@@ -928,7 +901,7 @@ const EditListingForm: FC<EditListingFormProps> = ({ listingId }) => {
                       )}
                     />
 
-                    {(form.watch("handDelivery") || form.watch("postalService")) && (
+                    {form.watch("postalService") && (
                       <FormField
                         control={form.control}
                         name="deliveryPrice"

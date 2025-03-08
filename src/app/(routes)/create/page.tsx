@@ -46,7 +46,6 @@ const formSchema = z.object({
     status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED']).optional(),
   })).min(1, { message: "At least one media file is required" }),
   noDelivery: z.boolean().optional(),
-  handDelivery: z.boolean().optional(),
   postalService: z.boolean().optional(),
   deliveryPrice: z.coerce.number().optional(),
 });
@@ -109,7 +108,6 @@ const CreateListingPage: FC = () => {
       condition: '',
       media: [],
       noDelivery: false,
-      handDelivery: false,
       postalService: false,
       deliveryPrice: 0,
     }
@@ -123,7 +121,6 @@ const CreateListingPage: FC = () => {
       console.log('Form values being submitted:', {
         ...values,
         noDelivery: values.noDelivery === true,
-        handDelivery: values.handDelivery === true,
         postalService: values.postalService === true,
       });
 
@@ -272,7 +269,6 @@ const CreateListingPage: FC = () => {
           // Include delivery options
           // Explicitly convert boolean values to ensure they're properly transmitted
           noDelivery: values.noDelivery === true,
-          handDelivery: values.handDelivery === true,
           postalService: values.postalService === true,
           deliveryPrice: values.deliveryPrice || 0,
           // Include currency (normalized to ensure consistent handling)
@@ -687,35 +683,12 @@ const CreateListingPage: FC = () => {
                         onCheckedChange={(checked) => {
                           field.onChange(checked);
                           if (checked) {
-                            form.setValue('handDelivery', false);
                             form.setValue('postalService', false);
                           }
                         }}
                       />
                     </FormControl>
                     <FormLabel className="font-normal">No delivery</FormLabel>
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="handDelivery"
-                render={({ field }) => (
-                  <FormItem className="flex items-center space-x-2">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={(checked) => {
-                          field.onChange(checked);
-                          if (checked) {
-                            form.setValue('noDelivery', false);
-                            form.setValue('postalService', false);
-                          }
-                        }}
-                      />
-                    </FormControl>
-                    <FormLabel className="font-normal">Hand delivery</FormLabel>
                   </FormItem>
                 )}
               />
@@ -732,7 +705,6 @@ const CreateListingPage: FC = () => {
                           field.onChange(checked);
                           if (checked) {
                             form.setValue('noDelivery', false);
-                            form.setValue('handDelivery', false);
                           }
                         }}
                       />

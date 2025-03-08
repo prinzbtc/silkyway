@@ -47,7 +47,6 @@ interface ListingType {
   favoritesCount?: number;
   deliveryOptions?: {
     noDelivery: boolean;
-    handDelivery: boolean;
     postalService: boolean;
     deliveryPrice: number;
   };

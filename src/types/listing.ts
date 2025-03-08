@@ -1,6 +1,5 @@
 export interface DeliveryOptions {
   noDelivery: boolean;
-  handDelivery: boolean;
   postalService: boolean;
   deliveryPrice: number;
 }
@@ -18,7 +17,6 @@ export interface Listing {
   featured?: boolean;
   deliveryOptions: {
     noDelivery: boolean;
-    handDelivery: boolean;
     postalService: boolean;
     deliveryPrice: number;
   };
@@ -50,7 +48,6 @@ import { MediaFile, MediaType, MediaProcessingStatus } from './media';
 
 export const DeliveryOptionsSchema = z.object({
   noDelivery: z.boolean(),
-  handDelivery: z.boolean(),
   postalService: z.boolean(),
   deliveryPrice: z.number().min(0)
 });
@@ -79,7 +76,6 @@ export const ListingSchema = z.object({
   featured: z.boolean().optional(),
   deliveryOptions: z.object({
     noDelivery: z.boolean(),
-    handDelivery: z.boolean(),
     postalService: z.boolean(),
     deliveryPrice: z.number().min(0)
   }),

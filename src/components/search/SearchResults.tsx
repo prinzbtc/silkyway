@@ -28,6 +28,44 @@ export const SearchResults: FC<SearchResultsProps> = ({
   gap = 'lg' 
 }) => {
   const { filters } = useSearch();
+  console.log('Raw filters from SearchProvider:', filters);
+  console.log('Delivery options from SearchProvider:', { 
+    noDelivery: filters.noDelivery, 
+    postalService: filters.postalService,
+    noDeliveryType: typeof filters.noDelivery,
+    postalServiceType: typeof filters.postalService
+  });
+  
+  // Create a filters object without undefined values
+  const filterObj: any = {
+    category: filters.category,
+    brand: Array.isArray(filters.brand) 
+      ? filters.brand.map(b => b.value).join(',') 
+      : filters.brand,
+    minPrice: filters.minPrice,
+    maxPrice: filters.maxPrice,
+    q: filters.q,
+    region: filters.region,
+    sellerLocation: filters.sellerLocation,
+  };
+  
+  // Only add delivery options to filters if they are explicitly set (not undefined)
+  if (filters.noDelivery !== undefined) {
+    filterObj.noDelivery = filters.noDelivery;
+    console.log('Adding noDelivery filter:', filters.noDelivery);
+  } else {
+    console.log('Not adding noDelivery filter because it is undefined');
+  }
+  
+  if (filters.postalService !== undefined) {
+    filterObj.postalService = filters.postalService;
+    console.log('Adding postalService filter:', filters.postalService);
+  } else {
+    console.log('Not adding postalService filter because it is undefined');
+  }
+  
+  console.log('Final search filters being applied:', filterObj);
+  
   const { 
     listings, 
     isLoading, 
@@ -36,20 +74,7 @@ export const SearchResults: FC<SearchResultsProps> = ({
     hasMore
   } = useListings({
     type: 'latest',
-    filters: {
-      category: filters.category,
-      brand: Array.isArray(filters.brand) 
-        ? filters.brand.map(b => b.value).join(',') 
-        : filters.brand,
-      minPrice: filters.minPrice,
-      maxPrice: filters.maxPrice,
-      q: filters.q,
-      region: filters.region,
-      sellerLocation: filters.sellerLocation,
-      noDelivery: filters.noDelivery,
-      handDelivery: filters.handDelivery,
-      postalService: filters.postalService,
-    }
+    filters: filterObj
   });
 
   // Render loading state

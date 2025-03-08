@@ -19,7 +19,6 @@ export interface SearchFilters {
   region?: string;
   sellerLocation?: CountrySelectValue | CountrySelectValue[];
   noDelivery?: boolean;
-  handDelivery?: boolean;
   postalService?: boolean;
   searchMode?: 'listings' | 'users';
 }
@@ -51,9 +50,8 @@ const DEFAULT_FILTERS: SearchFilters = {
   sort: 'latest',
   minPrice: 0,
   maxPrice: undefined, // Will be set dynamically based on the highest price in the database
-  noDelivery: false,
-  handDelivery: false,
-  postalService: false,
+  noDelivery: undefined, // Initialize as undefined so no filter is applied by default
+  postalService: undefined, // Initialize as undefined so no filter is applied by default
   searchMode: 'listings',
 };
 
@@ -148,10 +146,9 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
       setParamIfNeeded('sellerLocation', null);
     }
     
-    // Handle delivery options
-    setParamIfNeeded('noDelivery', filters.noDelivery ? 'true' : null);
-    setParamIfNeeded('handDelivery', filters.handDelivery ? 'true' : null);
-    setParamIfNeeded('postalService', filters.postalService ? 'true' : null);
+    // Handle delivery options - only add to URL if they are explicitly set
+    setParamIfNeeded('noDelivery', filters.noDelivery !== undefined ? (filters.noDelivery ? 'true' : 'false') : null);
+    setParamIfNeeded('postalService', filters.postalService !== undefined ? (filters.postalService ? 'true' : 'false') : null);
     
     // Always include searchMode in URL
     setParamIfNeeded('searchMode', filters.searchMode || 'listings');
@@ -212,9 +209,9 @@ export const SearchProvider: FC<SearchProviderProps> = ({ children }) => {
       q,
       region,
       sellerLocation,
-      noDelivery: searchParams.get('noDelivery') === 'true',
-      handDelivery: searchParams.get('handDelivery') === 'true',
-      postalService: searchParams.get('postalService') === 'true',
+      // Only set delivery options if they exist in the URL params
+      noDelivery: searchParams.has('noDelivery') ? searchParams.get('noDelivery') === 'true' : undefined,
+      postalService: searchParams.has('postalService') ? searchParams.get('postalService') === 'true' : undefined,
       searchMode: searchParams.get('searchMode') as 'listings' | 'users' || 'listings'
     };
     

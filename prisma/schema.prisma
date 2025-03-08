@@ -57,7 +57,7 @@ model Listing {
   userId          String
   brand           String?
   featured        Boolean        @default(false)
-  deliveryOptions Json           @default("{\"noDelivery\": false, \"handDelivery\": false, \"deliveryPrice\": 0, \"postalService\": false}")
+  deliveryOptions Json           @default("{\"noDelivery\": false, \"deliveryPrice\": 0, \"postalService\": false}")
   currency        Currency       @default(USD)
   favorites       Favorite[]
   user            User           @relation(fields: [userId], references: [id])

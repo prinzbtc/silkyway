@@ -32,7 +32,6 @@ const formSchema = z.object({
     .optional()
     .default("USD"),
   noDelivery: z.boolean().optional(),
-  handDelivery: z.boolean().optional(),
   postalService: z.boolean().optional(),
   deliveryPrice: z.number().optional(),
   condition: z.string().min(1, { message: "Condition is required" }),
@@ -184,7 +183,6 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       price,
       condition,
       noDelivery,
-      handDelivery,
       postalService,
       deliveryPrice,
       existingImages,
@@ -236,7 +234,6 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         condition,
         deliveryOptions: {
           noDelivery: noDelivery || false,
-          handDelivery: handDelivery || false,
           postalService: postalService || false,
           deliveryPrice: deliveryPrice || 0,
         },
