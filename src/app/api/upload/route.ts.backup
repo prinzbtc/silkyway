@@ -55,18 +55,6 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-
-    // Simulate virus detection for test files
-    if (file.name.includes('test-virus')) {
-      console.log('Simulating virus detection for test file:', file.name);
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Virus detected: EICAR-Test-Signature FOUND' 
-        },
-        { status: 400 }
-      );
-    }
 // Handle different upload purposes
     if (purpose === 'report') {
       return handleReportUpload(file);

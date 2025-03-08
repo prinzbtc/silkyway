@@ -21,6 +21,8 @@ export interface MediaFile {
   thumbnail?: string;
   status?: MediaProcessingStatus;
   file?: File; // For client-side use only
+  error?: string; // Error message if status is FAILED
+  isVirusDetected?: boolean; // Flag to indicate if a virus was detected
 }
 
 export interface UploadProgress {

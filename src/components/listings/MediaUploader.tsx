@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
+import { VirusAlertDialog } from '@/components/security/VirusAlertDialog';
 
 interface MediaUploaderProps {
   media: MediaFile[];
@@ -31,6 +32,10 @@ export function MediaUploader({
 }: MediaUploaderProps) {
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // State for virus alert dialog
+  const [virusAlertOpen, setVirusAlertOpen] = useState(false);
+  const [infectedFileName, setInfectedFileName] = useState('');
 
   // Count current media by type (including existing media)
   const imageCount = media.filter(m => m.type === MediaType.IMAGE).length + 
@@ -243,6 +248,49 @@ export function MediaUploader({
       // Attempt the upload with retry logic
       const data = await attemptUpload();
       
+      // Check if the upload failed due to virus detection
+      if (data && !data.success && data.isVirusDetected) {
+        console.log('Virus detected in file:', fileId);
+        
+        // Update the media item to indicate virus detection
+        const updatedMedia = media.map(item => {
+          if (item.id === fileId) {
+            return { 
+              ...item, 
+              status: MediaProcessingStatus.FAILED,
+              error: data.error,
+              isVirusDetected: true
+            };
+          }
+          return item;
+        });
+        
+        // Update the UI
+        onChange(updatedMedia);
+        
+        // Show the virus alert dialog
+        const fileName = file.name;
+        setInfectedFileName(fileName);
+        
+        // Small delay to ensure state updates properly
+        setTimeout(() => {
+          setVirusAlertOpen(true);
+        }, 50);
+        
+        // No need to set a text error message since we're using the dialog
+        // Clear any existing general errors
+        setErrors(prev => ({ ...prev, general: '' }));
+        
+        // Clear the progress indicator
+        setUploadProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[fileId];
+          return newProgress;
+        });
+        
+        return; // Exit early, no need to proceed with normal upload handling
+      }
+      
       // Use the provided media state if available, otherwise use the component state
       const mediaStateToUse = currentMediaState || media;
       
@@ -318,9 +366,23 @@ export function MediaUploader({
       } else {
         console.error('Attempted to update with empty media array, keeping current state');
       }
-    } catch (error) {
-      console.error('Error uploading file after all retries:', error);
-      console.error('Upload failed for file:', file.name);
+    } catch (error: unknown) {
+      // Don't log errors for virus detection as they're handled gracefully above
+      // Only log other types of errors
+      if (!(error instanceof Error) || !error.message.toLowerCase().includes('virus')) {
+        console.error('Error uploading file after all retries:', error);
+        console.error('Upload failed for file:', file.name);
+      }
+      
+      // Check if this is a virus detection error
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      // Look for virus-related terms in the error message, including in the JSON response
+      const isVirusError = errorMessage.toLowerCase().includes('virus') || 
+                          errorMessage.toLowerCase().includes('malware') || 
+                          errorMessage.toLowerCase().includes('infected') || 
+                          errorMessage.toLowerCase().includes('eicar');
+      
+      console.log('Checking for virus detection:', { errorMessage, isVirusError });
       
       // Update the media item to indicate failure
       const updatedMedia = media.map(item => {
@@ -328,7 +390,8 @@ export function MediaUploader({
           return { 
             ...item, 
             status: MediaProcessingStatus.FAILED,
-            error: error instanceof Error ? error.message : 'Unknown error'
+            error: errorMessage,
+            isVirusDetected: isVirusError
           };
         }
         return item;
@@ -353,10 +416,23 @@ export function MediaUploader({
       });
       
       // Set a more specific error message
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      setErrors({ 
-        general: `Failed to upload ${file.name}: ${errorMessage.includes('Upload failed') ? errorMessage : 'Connection error'}`
-      });
+      if (isVirusError) {
+        // Show the virus alert dialog instead of setting an error message
+        const fileName = file.name;
+        setInfectedFileName(fileName);
+        
+        // Small delay to ensure state updates properly
+        setTimeout(() => {
+          setVirusAlertOpen(true);
+        }, 50);
+        
+        // Clear any existing general errors
+        setErrors(prev => ({ ...prev, general: '' }));
+      } else {
+        setErrors({ 
+          general: `Failed to upload ${file.name}: ${errorMessage.includes('Upload failed') ? errorMessage : 'Connection error'}`
+        });
+      }
     }
   };
 
@@ -646,6 +722,19 @@ export function MediaUploader({
                     </div>
                   )}
                   
+                  {/* Failed status indicator */}
+                  {item.status === MediaProcessingStatus.FAILED && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white p-2 text-xs text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <AlertCircle className="h-5 w-5 text-red-500" />
+                        <span>{item.isVirusDetected ? 'Security threat detected!' : 'Upload failed'}</span>
+                        {item.isVirusDetected && (
+                          <span className="text-red-400 font-semibold mt-1">File rejected for security</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
                   {/* Type badge */}
                   <Badge 
                     variant="secondary" 
@@ -841,6 +930,19 @@ export function MediaUploader({
                             </div>
                           )}
                           
+                          {/* Failed status indicator */}
+                          {item.status === MediaProcessingStatus.FAILED && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white p-2 text-xs text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                <AlertCircle className="h-5 w-5 text-red-500" />
+                                <span>{item.isVirusDetected ? 'Security threat detected!' : 'Upload failed'}</span>
+                                {item.isVirusDetected && (
+                                  <span className="text-red-400 font-semibold mt-1">File rejected for security</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          
                           {/* Type badge */}
                           <Badge 
                             variant="secondary" 
@@ -903,6 +1005,15 @@ export function MediaUploader({
           </Droppable>
         </DragDropContext>
       )}
+      
+
+      
+      {/* Virus Alert Dialog */}
+      <VirusAlertDialog 
+        isOpen={virusAlertOpen} 
+        onClose={() => setVirusAlertOpen(false)} 
+        fileName={infectedFileName || 'unknown file'} 
+      />
     </div>
   );
 }
