@@ -8,6 +8,8 @@ import { SessionProvider } from '@/providers/SessionProvider'
 import { Header } from '@/components/layout/Header'
 import { Footer } from '@/components/layout/Footer'
 import './globals.css'
+// Import the temp upload cleanup module
+import '@/lib/tempUploadCleanup'
 
 const inter = Inter({ subsets: ['latin'] })
 
