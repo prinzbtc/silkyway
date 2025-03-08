@@ -44,8 +44,8 @@
     "@upstash/redis": "^1.28.3",
     "browser-image-compression": "^2.0.2",
     "canvas-confetti": "^1.9.3",
+    "clamscan": "^2.4.0",
     "class-variance-authority": "^0.7.1",
-    "clamscan": "^2.1.2",
     "clsx": "^2.1.1",
     "date-fns": "^3.3.1",
     "framer-motion": "^12.4.1",
@@ -79,6 +79,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^14.2.1",
+    "@types/clamscan": "^2.4.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.13.1",
     "@types/oauth": "^0.9.6",

@@ -201,9 +201,9 @@ export function MediaUploader({
         const progressStart = retryCount > 0 ? 20 : 10;
         setUploadProgress(prev => ({ ...prev, [fileId]: progressStart }));
         
-        // Upload file
-        console.log('Sending fetch request to /api/upload');
-        const response = await fetch('/api/upload', {
+        // Upload file using the optimized route for better performance with large files
+        console.log('Sending fetch request to /api/upload/optimized');
+        const response = await fetch('/api/upload/optimized', {
           method: 'POST',
           body: formData,
         });
