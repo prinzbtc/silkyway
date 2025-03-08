@@ -194,7 +194,6 @@ export async function POST(request: NextRequest) {
     // Remove delivery fields that should only be in deliveryOptions
     const { 
       noDelivery, 
-      handDelivery, 
       postalService, 
       deliveryPrice, 
       media: mediaFromRequest, 
@@ -204,13 +203,12 @@ export async function POST(request: NextRequest) {
     // Make sure deliveryOptions is properly structured
     const deliveryOptions = {
       noDelivery: noDelivery === true,
-      handDelivery: handDelivery === true,
       postalService: postalService === true,
       deliveryPrice: deliveryPrice || 0
     };
     
     // Log delivery options for debugging
-    console.log('Delivery options from request:', { noDelivery, handDelivery, postalService, deliveryPrice });
+    console.log('Delivery options from request:', { noDelivery, postalService, deliveryPrice });
     console.log('Structured delivery options:', deliveryOptions);
     
     console.log('Cleaned listing data:', {
@@ -569,22 +567,63 @@ export async function GET(request: NextRequest) {
     const session = await getSession(request);
     const userId = session?.user?.id;
 
-    const noDelivery = searchParams.get('noDelivery') === 'true';
-    const handDelivery = searchParams.get('handDelivery') === 'true';
-    const postalService = searchParams.get('postalService') === 'true';
+    // Parse delivery options filters
+    // We need to check if the parameter exists first, then check its value
+    const noDeliveryParam = searchParams.get('noDelivery');
+    const postalServiceParam = searchParams.get('postalService');
+    const showAllDeliveryParam = searchParams.get('show_all_delivery');
     
-    // Log the delivery filter conditions for debugging
-    console.log('Delivery filter conditions:', { noDelivery, handDelivery, postalService });
-
-    // Log filter debugging information outside the query
-    if (process.env.NODE_ENV === 'development') {
-      if (sellerLocations.length > 0) {
-        console.log(`DEBUG: Filtering listings by seller locations matching:`, sellerLocations);
-      }
-      if (brands.length > 0) {
-        console.log(`API: Filtering listings by brands: ${brands.join(', ')} (case-insensitive)`);
+    // Check if we have the special flag to show all delivery options
+    const forceShowAllDelivery = showAllDeliveryParam === 'true';
+    
+    // Only set these to true/false if the parameter exists
+    // If the parameter doesn't exist, set to undefined to indicate no filtering should be applied
+    const noDelivery = noDeliveryParam !== null ? noDeliveryParam === 'true' : undefined;
+    const postalService = postalServiceParam !== null ? postalServiceParam === 'true' : undefined;
+    
+    // Check if we should apply delivery filters at all
+    // We should not apply filters if forceShowAllDelivery is true
+    const shouldApplyDeliveryFilters = !forceShowAllDelivery && (noDelivery !== undefined || postalService !== undefined);
+    
+    console.log('Raw delivery params:', { noDeliveryParam, postalServiceParam, showAllDeliveryParam });
+    console.log('Parsed delivery filters:', { noDelivery, postalService, forceShowAllDelivery });
+    console.log('Will apply delivery filters?', { 
+      forceShowAllDelivery,
+      applyAnyDeliveryFilters: shouldApplyDeliveryFilters,
+      applyNoDeliveryFilter: noDelivery !== undefined, 
+      applyPostalServiceFilter: postalService !== undefined 
+    });
+    
+    // If both delivery filters are undefined or forceShowAllDelivery is true, log that we'll show all listings
+    if (!shouldApplyDeliveryFilters) {
+      console.log('No delivery filters applied - will show ALL listings regardless of delivery options');
+      if (forceShowAllDelivery) {
+        console.log('FORCED to show all delivery options due to show_all_delivery=true flag');
       }
     }
+    
+    // Log all search parameters for debugging
+    console.log('All search parameters received:', Object.fromEntries(searchParams.entries()));
+    console.log('URL that triggered this request:', request.url);
+    
+    // Log the delivery filter conditions for debugging
+    console.log('Delivery filter conditions:', { noDelivery, postalService });
+    
+    // Log more detailed information about which filter is active
+    if (noDelivery) {
+      console.log('Filtering for listings with Pickup Only (noDelivery: true)');
+      console.log('This will find listings where deliveryOptions.noDelivery = true');
+    }
+    if (postalService) {
+      console.log('Filtering for listings with Postal Service (postalService: true)');
+      console.log('This will find listings where deliveryOptions.postalService = true');
+    }
+
+    // Log the detailed query conditions for debugging
+    console.log('Detailed delivery options query conditions:', JSON.stringify({
+      noDelivery: noDelivery ? { path: ['noDelivery'], equals: true } : null,
+      postalService: postalService ? { path: ['postalService'], equals: true } : null
+    }, null, 2));
 
     // Construct where clause
     const where: Prisma.ListingWhereInput = {
@@ -648,26 +687,42 @@ export async function GET(request: NextRequest) {
         ] as Prisma.ListingWhereInput[],
       }),
       // Seller location filter is already applied above
-      ...(noDelivery || handDelivery || postalService ? {
-        OR: [
-          ...(noDelivery ? [{
+      // Handle delivery options filters
+      // Only add filters if they are explicitly set (not undefined)
+      ...(shouldApplyDeliveryFilters ? {
+        AND: [
+          // For noDelivery, we want to find listings where noDelivery is true/false based on the filter
+          ...(noDelivery !== undefined ? [{
             deliveryOptions: {
-              string_contains: '"noDelivery":true'
+              path: ['noDelivery'],
+              equals: noDelivery
             }
           }] : []),
-          ...(handDelivery ? [{
+
+          // For postalService, we want to find listings where postalService is true/false based on the filter
+          ...(postalService !== undefined ? [{
             deliveryOptions: {
-              string_contains: '"handDelivery":true'
-            }
-          }] : []),
-          ...(postalService ? [{
-            deliveryOptions: {
-              string_contains: '"postalService":true'
+              path: ['postalService'],
+              equals: postalService
             }
           }] : [])
         ]
-      } : {}),
+      } : {
+        // If no delivery filters are applied, don't add any conditions at all
+        // This ensures all listings are returned regardless of their delivery options
+      }),
     };
+    
+    // Log specifically if delivery filters are being applied
+    console.log('Delivery filters applied?', shouldApplyDeliveryFilters);
+    if (shouldApplyDeliveryFilters) {
+      console.log('Applied delivery filters:', { noDelivery, postalService });
+    } else {
+      console.log('No delivery filters applied - should show ALL listings');
+    }
+    
+    // Log the final where clause for debugging
+    console.log('Final where clause:', JSON.stringify(where, null, 2));
 
     // Base query includes user and favorites count
     const baseQuery = {

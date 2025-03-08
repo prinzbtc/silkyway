@@ -40,6 +40,7 @@ import RegionSelect, { regions } from '@/components/search/RegionSelect';
 import { CountrySelectValue } from '@/components/ui/country-select';
 import LocationSelect from '@/components/search/LocationSelect';
 import BrandSelect, { BrandOption } from '@/components/search/BrandSelect';
+import DeliverySelect, { DeliveryOption } from '@/components/search/DeliverySelect';
 
 // Initial popular brands (will be supplemented with database brands)
 const initialPopularBrands = [
@@ -145,6 +146,19 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
     }
   }, [maxPriceError]);
 
+  // Function to determine the current delivery option value based on filters
+  const getDeliveryOptionValue = (): DeliveryOption => {
+    if (filters.noDelivery === true) {
+      return 'noDelivery';
+    } else if (filters.postalService === true) {
+      return 'postalService';
+    } else {
+      // If both filters are undefined, return 'all'
+      console.log('Both delivery filters are undefined, returning "all"');
+      return 'all';
+    }
+  };
+
   const handleSearchModeChange = (mode: 'listings' | 'users') => {
     console.log(`Switching search mode to: ${mode}`);
     
@@ -159,7 +173,6 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
       minPrice: undefined,
       maxPrice: undefined,
       noDelivery: undefined,
-      handDelivery: undefined,
       postalService: undefined,
       // Keep region and location filters for both modes
       region: filters.region,
@@ -246,15 +259,23 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
                 </Badge>
               )}
               
-              {(filters.noDelivery || filters.handDelivery || filters.postalService) && (
+              {filters.noDelivery && (
                 <Badge variant="outline" className="flex items-center gap-1">
-                  Delivery Options
+                  Pickup Only
                   <button 
-                    onClick={() => {
-                      setFilter('noDelivery', false);
-                      setFilter('handDelivery', false);
-                      setFilter('postalService', false);
-                    }}
+                    onClick={() => setFilter('noDelivery', false)}
+                    className="ml-1 hover:text-destructive"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+              
+              {filters.postalService && (
+                <Badge variant="outline" className="flex items-center gap-1">
+                  Postal Service
+                  <button 
+                    onClick={() => setFilter('postalService', false)}
                     className="ml-1 hover:text-destructive"
                   >
                     <X className="h-3 w-3" />
@@ -301,168 +322,182 @@ export const SearchFilters: FC<SearchFiltersProps> = ({ className }) => {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-            
-            {/* Price Range Filter */}
-            <div className="md:col-span-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Price Range ({preferredCurrency})
-              </label>
-              <div className="px-2">
-                <Slider
-                  value={[filters.minPrice || 0, filters.maxPrice || maxPrice]}
-                  min={0}
-                  max={maxPrice}
-                  step={Math.max(1, Math.floor(maxPrice / 100))}
-                  onValueChange={(value) => {
-                    setFilter('minPrice', value[0]);
-                    setFilter('maxPrice', value[1]);
-                  }}
-                />
-                <div className="mt-2 flex justify-between text-sm text-gray-500">
-                  <span>{formatPrice(filters.minPrice || 0, preferredCurrency)}</span>
-                  <span>{formatPrice(filters.maxPrice || maxPrice, preferredCurrency)}</span>
-                </div>
+          {/* Price Range Filter - Full width */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Price Range ({preferredCurrency})
+            </label>
+            <div className="px-2">
+              <Slider
+                value={[filters.minPrice || 0, filters.maxPrice || maxPrice]}
+                min={0}
+                max={maxPrice}
+                step={Math.max(1, Math.floor(maxPrice / 100))}
+                onValueChange={(value) => {
+                  setFilter('minPrice', value[0]);
+                  setFilter('maxPrice', value[1]);
+                }}
+              />
+              <div className="mt-2 flex justify-between text-sm text-gray-500">
+                <span>{formatPrice(filters.minPrice || 0, preferredCurrency)}</span>
+                <span>{formatPrice(filters.maxPrice || maxPrice, preferredCurrency)}</span>
               </div>
             </div>
-            
-            {/* Category Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Category
-              </label>
-              <Select
-                value={filters.category || ""}
-                onValueChange={(value) => setFilter('category', value || undefined)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All Categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All Categories</SelectItem>
-                  {categories.map((category) => (
-                    <SelectItem key={category.value} value={category.value}>
-                      {category.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          </div>
+          
+          {/* Main filters grid - 2 columns */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* First column - Category, Brand, Sort by */}
+            <div className="space-y-4">
+              {/* Category Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category
+                </label>
+                <Select
+                  value={filters.category || ""}
+                  onValueChange={(value) => setFilter('category', value || undefined)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Categories</SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category.value} value={category.value}>
+                        {category.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Brand Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Brand
+                </label>
+                <BrandSelect
+                  value={Array.isArray(filters.brand) ? filters.brand as BrandOption[] : undefined}
+                  options={popularBrands}
+                  onChange={(value) => {
+                    console.log('Brands selected:', value);
+                    // Only set the filter if there are brands selected, otherwise set to undefined
+                    if (value.length > 0) {
+                      setFilter('brand', value);
+                    } else {
+                      setFilter('brand', undefined);
+                    }
+                  }}
+                  isLoading={isLoadingBrands}
+                />
+              </div>
+
+              {/* Sort Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Sort By
+                </label>
+                <Select
+                  value={filters.sort || 'latest'}
+                  onValueChange={(value) => setFilter('sort', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* Sort Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Sort By
-              </label>
-              <Select
-                value={filters.sort || 'latest'}
-                onValueChange={(value) => setFilter('sort', value)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {sortOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Second column - Region, Seller Location, Delivery */}
+            <div className="space-y-4">
+              {/* Region Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Region
+                </label>
+                <RegionSelect
+                  value={filters.region}
+                  onChange={(regionValue, countries) => {
+                    console.log('Region selected:', regionValue);
+                    console.log('Countries in region:', countries);
+                    
+                    // Use a single operation to update both filters at once
+                    setFilters({
+                      region: regionValue,
+                      sellerLocation: countries
+                    });
+                  }}
+                />
+              </div>
 
-            {/* Brand Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Brand
-              </label>
-              <BrandSelect
-                value={Array.isArray(filters.brand) ? filters.brand as BrandOption[] : undefined}
-                options={popularBrands}
-                onChange={(value) => {
-                  console.log('Brands selected:', value);
-                  // Only set the filter if there are brands selected, otherwise set to undefined
-                  if (value.length > 0) {
-                    setFilter('brand', value);
-                  } else {
-                    setFilter('brand', undefined);
-                  }
-                }}
-                isLoading={isLoadingBrands}
-              />
-            </div>
-
-
-
-            {/* Region Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Region
-              </label>
-              <RegionSelect
-                value={filters.region}
-                onChange={(regionValue, countries) => {
-                  console.log('Region selected:', regionValue);
-                  console.log('Countries in region:', countries);
-                  
-                  // Use a single operation to update both filters at once
-                  setFilters({
-                    region: regionValue,
-                    sellerLocation: countries
-                  });
-                }}
-              />
-            </div>
-
-            {/* Seller Location Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Seller Location
-              </label>
-              <LocationSelect
-                value={Array.isArray(filters.sellerLocation) ? filters.sellerLocation as CountrySelectValue[] : filters.sellerLocation ? [filters.sellerLocation as CountrySelectValue] : undefined}
-                onChange={(value) => {
-                  console.log('Countries selected:', value);
-                  // When manually selecting countries, clear any region filter and update sellerLocation in one operation
-                  setFilters({
-                    region: undefined,
-                    sellerLocation: value
-                  });
-                }}
-              />
-            </div>
-            
-            {/* Delivery Options */}
-            <div className="md:col-span-3">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Delivery Options
-              </label>
-              <div className="flex flex-wrap gap-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="noDelivery" 
-                    checked={filters.noDelivery}
-                    onCheckedChange={(checked) => setFilter('noDelivery', !!checked)}
-                  />
-                  <Label htmlFor="noDelivery">Pickup Only</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="handDelivery" 
-                    checked={filters.handDelivery}
-                    onCheckedChange={(checked) => setFilter('handDelivery', !!checked)}
-                  />
-                  <Label htmlFor="handDelivery">Hand Delivery</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="postalService" 
-                    checked={filters.postalService}
-                    onCheckedChange={(checked) => setFilter('postalService', !!checked)}
-                  />
-                  <Label htmlFor="postalService">Postal Service</Label>
-                </div>
+              {/* Seller Location Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Seller Location
+                </label>
+                <LocationSelect
+                  value={Array.isArray(filters.sellerLocation) ? filters.sellerLocation as CountrySelectValue[] : filters.sellerLocation ? [filters.sellerLocation as CountrySelectValue] : undefined}
+                  onChange={(value) => {
+                    console.log('Countries selected:', value);
+                    // When manually selecting countries, clear any region filter and update sellerLocation in one operation
+                    setFilters({
+                      region: undefined,
+                      sellerLocation: value
+                    });
+                  }}
+                />
+              </div>
+              
+              {/* Delivery Options */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Delivery Options
+                </label>
+                <DeliverySelect
+                  value={getDeliveryOptionValue()}
+                  onChange={(value) => {
+                    console.log('DeliverySelect onChange called with value:', value);
+                    
+                    // Handle the different delivery option selections
+                    switch(value) {
+                      case 'all':
+                        // Reset both filters to undefined to show all listings
+                        console.log('Setting both delivery filters to undefined');
+                        setFilter('noDelivery', undefined);
+                        setFilter('postalService', undefined);
+                        console.log('After setting filters to undefined:', { 
+                          noDelivery: filters.noDelivery, 
+                          postalService: filters.postalService 
+                        });
+                        break;
+                      case 'noDelivery':
+                        // Filter for listings with noDelivery: true
+                        console.log('Setting noDelivery to true and postalService to undefined');
+                        setFilters({
+                          noDelivery: true,
+                          postalService: undefined
+                        });
+                        break;
+                      case 'postalService':
+                        // Filter for listings with postalService: true
+                        console.log('Setting postalService to true and noDelivery to undefined');
+                        setFilters({
+                          postalService: true,
+                          noDelivery: undefined
+                        });
+                        break;
+                    }
+                  }}
+                  className="w-full"
+                />
               </div>
             </div>
           </div>

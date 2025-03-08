@@ -53,6 +53,10 @@ export function useListings(
         setError(null);
         setIsLoading(true);
 
+        // Check if we're showing all delivery options (both filters undefined)
+        const showAllDeliveryOptions = filters?.noDelivery === undefined && filters?.postalService === undefined;
+        console.log('useListings - showAllDeliveryOptions:', showAllDeliveryOptions);
+        
         const params = new URLSearchParams({
           type,
           limit: limit.toString(),
@@ -83,9 +87,22 @@ export function useListings(
         
           // Log all filters for debugging
           _all_filters: JSON.stringify(filters),
-          ...(filters?.noDelivery && { noDelivery: 'true' }),
-          ...(filters?.handDelivery && { handDelivery: 'true' }),
-          ...(filters?.postalService && { postalService: 'true' }),
+          
+          // Pass delivery options filters only when they are defined (not undefined)
+          // When undefined, no filter will be applied for that option
+          ...(filters?.noDelivery !== undefined && { noDelivery: filters.noDelivery ? 'true' : 'false' }),
+          ...(filters?.handDelivery !== undefined && { handDelivery: filters.handDelivery ? 'true' : 'false' }),
+          ...(filters?.postalService !== undefined && { postalService: filters.postalService ? 'true' : 'false' }),
+          
+          // Add debug info for delivery options
+          _delivery_debug: `noDelivery: ${filters?.noDelivery !== undefined ? (filters.noDelivery ? 'true' : 'false') : 'undefined'}, postalService: ${filters?.postalService !== undefined ? (filters.postalService ? 'true' : 'false') : 'undefined'}`,
+          
+          // Add a flag to indicate if we're showing all delivery options
+          _all_delivery_options: showAllDeliveryOptions ? 'true' : 'false',
+          
+          // Add a special flag to force showing all delivery options when both filters are undefined
+          ...(showAllDeliveryOptions && { show_all_delivery: 'true' }),
+          
           ...(filters?.q && { q: filters.q }), // Add search query parameter
         });
         
