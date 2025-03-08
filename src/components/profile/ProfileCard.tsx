@@ -46,7 +46,7 @@ export default function ProfileCard({ user, isOwner }: ProfileCardProps) {
               {username.charAt(0).toUpperCase()}
             </div>
           )}
-          <div className="absolute -right-1 -top-1 flex flex-col gap-1">
+          <div className="absolute -right-3 -top-1 flex flex-col gap-0.5">
             {getUserBadges(user).map((badge) => (
               <UserBadge
                 key={badge}

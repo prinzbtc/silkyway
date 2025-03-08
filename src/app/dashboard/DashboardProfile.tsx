@@ -91,7 +91,7 @@ export const DashboardProfile: FC<DashboardProfileProps> = ({ userId }) => {
               )}
             </div>
             {user && (
-              <div className="absolute -right-1 -top-1 flex flex-col gap-1">
+              <div className="absolute -right-3 -top-1 flex flex-col gap-0.5">
                 {getUserBadges(user).map((badge) => (
                   <UserBadge
                     key={badge}
