@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { saveFile, validateFile } from '@/lib/uploads';
+import { scanBuffer } from '@/lib/antivirus';
 import { Prisma } from '@prisma/client';
 
 export async function GET(request: NextRequest) {
@@ -132,10 +133,49 @@ export async function PUT(request: NextRequest) {
     // Handle avatar upload if present
     let avatarUrl = undefined;
     if (avatar) {
-      // Validate and save profile picture
-      await validateFile(avatar, 'profile');
-      const { url } = await saveFile(avatar, 'profile');
-      avatarUrl = url;
+      try {
+        // Validate file type and size
+        await validateFile(avatar, 'profile');
+        
+        // Convert file to buffer for virus scanning
+        const buffer = Buffer.from(await avatar.arrayBuffer());
+        
+        // Get the original filename from the data object directly
+        let originalFilename = avatar.name;
+        if (data.originalFilename) {
+          originalFilename = data.originalFilename;
+          console.log(`Using original filename for virus scanning: ${originalFilename}`);
+        }
+        
+        // Scan the buffer for viruses before saving
+        console.log('Scanning avatar for viruses...');
+        const scanResult = await scanBuffer(buffer, originalFilename);
+        
+        if (scanResult.isInfected) {
+          console.error(`Virus detected in avatar upload: ${scanResult.viruses.join(', ')}`);
+          return NextResponse.json(
+            { 
+              success: false,
+              error: `Security threat detected in uploaded file. Upload blocked.` 
+            },
+            { status: 400 }
+          );
+        }
+        
+        console.log('Avatar passed virus scan, saving file...');
+        // Save the file if it passed the virus scan
+        const { url } = await saveFile(avatar, 'profile');
+        avatarUrl = url;
+      } catch (error) {
+        console.error('Error processing avatar upload:', error);
+        return NextResponse.json(
+          { 
+            success: false,
+            error: `Failed to process avatar: ${error instanceof Error ? error.message : 'Unknown error'}` 
+          },
+          { status: 500 }
+        );
+      }
     }
 
     // Extract allowed fields from data

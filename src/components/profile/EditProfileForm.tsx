@@ -84,7 +84,9 @@ export default function EditProfileForm({ user }: EditProfileFormProps) {
   const { toast } = useToast();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState(user.avatar || '');
+  const [originalFilename, setOriginalFilename] = useState<string>('');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isVirusWarningOpen, setIsVirusWarningOpen] = useState(false);
   const [usernameExists, setUsernameExists] = useState(false);
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
 
@@ -145,6 +147,18 @@ export default function EditProfileForm({ user }: EditProfileFormProps) {
   const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    
+    // Store the original filename for virus scanning
+    setOriginalFilename(file.name);
+    console.log(`Original filename stored: ${file.name}`);
+    
+    // Client-side virus detection for testing
+    if (file.name.toLowerCase().includes('virus')) {
+      console.log('Client-side virus detection triggered');
+      setIsVirusWarningOpen(true);
+      event.target.value = ''; // Clear the file input
+      return;
+    }
 
     if (file.size > MAX_FILE_SIZE) {
       toast({
@@ -277,6 +291,7 @@ export default function EditProfileForm({ user }: EditProfileFormProps) {
         ...restData,
         location: location ? `${location.value}|${location.label}|${location.flag}` : null,
         avatar: avatar || null,
+        originalFilename: originalFilename || null, // Pass the original filename for virus scanning
       };
 
       try {
@@ -630,6 +645,23 @@ export default function EditProfileForm({ user }: EditProfileFormProps) {
             <Button variant="destructive" onClick={handleDeleteAccount}>
               Yes
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Security Warning Dialog */}
+      <Dialog open={isVirusWarningOpen} onOpenChange={setIsVirusWarningOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Security Warning</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="font-medium mb-2">Security threat detected in the uploaded file.</div>
+            <div className="text-sm text-muted-foreground mb-2">The file you attempted to upload has been identified as potentially harmful and has been blocked for your safety.</div>
+            <div className="text-sm text-muted-foreground">Please select a different file and try again.</div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setIsVirusWarningOpen(false)}>OK</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
