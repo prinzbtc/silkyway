@@ -65,6 +65,7 @@ model Listing {
   offers          Offer[]
   reports         Report[]
   transactions    Transaction[]
+  conversations   Conversation[]
 
   @@index([userId])
 }
@@ -111,12 +112,15 @@ model Conversation {
   updatedAt DateTime  @updatedAt
   buyerId   String
   sellerId  String
+  listingId String?   // Optional reference to a listing
   buyer     User      @relation("ConversationBuyer", fields: [buyerId], references: [id])
   seller    User      @relation("ConversationSeller", fields: [sellerId], references: [id])
+  listing   Listing?  @relation(fields: [listingId], references: [id])
   messages  Message[]
 
   @@index([buyerId])
   @@index([sellerId])
+  @@index([listingId])
 }
 
 model Message {

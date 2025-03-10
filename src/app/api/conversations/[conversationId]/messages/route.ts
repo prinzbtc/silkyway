@@ -2,7 +2,18 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import prisma from '@/lib/prisma';
 import { pusherServer } from '@/lib/pusher';
+import { MessageAttachment, SendMessageInput } from '@/types/chat';
 
+const MAX_MESSAGE_LENGTH = 350;
+const MAX_ATTACHMENTS = 5;
+
+/**
+ * Sends a new message in a conversation
+ * 
+ * @param request Request containing message content and attachments
+ * @param params Contains the conversationId
+ * @returns The created message or an error response
+ */
 export async function POST(
   request: Request,
   { params }: { params: { conversationId: string } }
@@ -13,16 +24,31 @@ export async function POST(
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const { content, attachments } = await request.json();
+    // Parse and validate request body
+    const body = await request.json();
+    const { content, attachments } = body as SendMessageInput;
 
     // Validate content length
-    if (content && content.length > 350) {
-      return new NextResponse('Message too long', { status: 400 });
+    if (content && content.length > MAX_MESSAGE_LENGTH) {
+      return new NextResponse(`Message too long, maximum ${MAX_MESSAGE_LENGTH} characters allowed`, { status: 400 });
     }
 
     // Validate attachments
-    if (attachments && (!Array.isArray(attachments) || attachments.length > 3)) {
-      return new NextResponse('Invalid attachments', { status: 400 });
+    if (attachments) {
+      if (!Array.isArray(attachments)) {
+        return new NextResponse('Attachments must be an array', { status: 400 });
+      }
+      
+      if (attachments.length > MAX_ATTACHMENTS) {
+        return new NextResponse(`Maximum ${MAX_ATTACHMENTS} attachments allowed`, { status: 400 });
+      }
+      
+      // Validate each attachment has required fields
+      for (const attachment of attachments) {
+        if (!attachment.url || !attachment.type || !attachment.size) {
+          return new NextResponse('Each attachment must have url, type, and size', { status: 400 });
+        }
+      }
     }
 
     // Get conversation and verify participant
@@ -40,17 +66,23 @@ export async function POST(
 
     // Verify user is part of conversation
     if (conversation.buyerId !== session.user.id && conversation.sellerId !== session.user.id) {
-      return new NextResponse('Unauthorized', { status: 401 });
+      return new NextResponse('Unauthorized - you are not a participant in this conversation', { status: 403 });
     }
+
+    // Determine recipient
+    const receiverId = conversation.buyerId === session.user.id 
+      ? conversation.sellerId 
+      : conversation.buyerId;
 
     // Create message
     const message = await prisma.message.create({
       data: {
         content: content || '',
         senderId: session.user.id,
-        receiverId: conversation.buyerId === session.user.id ? conversation.sellerId : conversation.buyerId,
+        receiverId,
         conversationId: params.conversationId,
-        attachments: attachments || [],
+        attachments: (attachments || []) as any, // Type cast to handle JSON field
+        type: 'text' // Default type for regular messages
       },
       include: {
         sender: {
@@ -70,9 +102,15 @@ export async function POST(
       },
     });
 
-    // Trigger Pusher event
+    // Update conversation's updatedAt timestamp
+    await prisma.conversation.update({
+      where: { id: params.conversationId },
+      data: { updatedAt: new Date() }
+    });
+
+    // Trigger Pusher event for real-time updates
     await pusherServer.trigger(
-      `user-${message.receiverId}`,
+      `user-${receiverId}`,
       'new-message',
       {
         message,
@@ -81,12 +119,18 @@ export async function POST(
       }
     );
 
-    return new NextResponse(JSON.stringify(message), {
-      status: 201,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // Also trigger a conversation update event
+    await pusherServer.trigger(
+      `user-${receiverId}`,
+      'conversation-update',
+      {
+        conversationId: params.conversationId
+      }
+    );
+
+    return NextResponse.json(message, { status: 201 });
   } catch (error) {
     console.error('Error sending message:', error);
-    return new NextResponse('Internal Error', { status: 500 });
+    return new NextResponse(`Internal Error: ${error instanceof Error ? error.message : 'Unknown error'}`, { status: 500 });
   }
 }

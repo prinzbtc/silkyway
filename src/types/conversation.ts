@@ -1,47 +1,43 @@
-export interface Message {
-  id: string;
-  content: string;
-  createdAt: Date;
-  read: boolean;
-  senderId: string;
-  receiverId: string;
-  sender: {
-    id: string;
-    username: string | null;
-    avatar: string | null;
-  };
-  receiver: {
-    id: string;
-    username: string | null;
-    avatar: string | null;
-  };
-}
+/**
+ * This file re-exports types from chat.ts to maintain backward compatibility
+ * while ensuring type consistency across the messaging system.
+ */
 
-export interface User {
-  id: string;
-  username: string | null;
-  avatar: string | null;
-}
+import {
+  Message as ChatMessage,
+  ChatUser,
+  ChatOffer,
+  ChatListing,
+  Conversation as ChatConversation,
+} from './chat';
 
-export interface Offer {
-  id: string;
-  amount: number;
+/**
+ * @deprecated Use ChatUser from chat.ts instead
+ */
+export interface User extends ChatUser {}
+
+/**
+ * @deprecated Use Message from chat.ts instead
+ */
+export interface Message extends ChatMessage {}
+
+/**
+ * @deprecated Use ChatOffer from chat.ts instead
+ */
+export interface Offer extends ChatOffer {
+  // Maintain backward compatibility by restricting status options
   status: 'pending' | 'accepted' | 'rejected';
-  createdAt: Date;
-  senderId: string;
-  receiverId: string;
 }
 
-export interface Listing {
-  id: string;
-  title: string;
-  price: number;
-  currency?: string;
-  images: string[];
-  mainImage: string;
-  user: User;
-}
+/**
+ * @deprecated Use ChatListing from chat.ts instead
+ */
+export interface Listing extends ChatListing {}
 
+/**
+ * Represents a conversation with additional UI-specific properties
+ * @deprecated Consider using Conversation from chat.ts directly
+ */
 export interface Conversation {
   id: string;
   otherUser: User;

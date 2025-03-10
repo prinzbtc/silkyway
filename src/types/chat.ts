@@ -1,9 +1,40 @@
+/**
+ * Types for the messaging system
+ * These types align with the Prisma schema and are used across all messaging components
+ */
+
+/**
+ * Represents a file attachment in a message (image, document, etc.)
+ */
 export interface MessageAttachment {
   url: string;
-  type: string;
-  size: number;
+  type: string; // MIME type (e.g., 'image/jpeg', 'application/pdf')
+  size: number; // File size in bytes
+  name?: string; // Optional filename
 }
 
+/**
+ * Represents a user in the messaging context with minimal required fields
+ */
+export interface ChatUser {
+  id: string;
+  username: string | null;
+  avatar: string | null;
+}
+
+/**
+ * Metadata for transaction notification messages
+ */
+export interface TransactionNotificationMetadata {
+  type: 'buyer' | 'seller' | 'buyerCancel' | 'sellerCancel';
+  listingTitle: string;
+  counterpartyUsername: string;
+  transactionId: string;
+}
+
+/**
+ * Represents a message in a conversation
+ */
 export interface Message {
   id: string;
   content: string;
@@ -12,22 +43,83 @@ export interface Message {
   receiverId: string;
   conversationId: string;
   read: boolean;
-  type?: 'transaction_notification';
+  type?: 'transaction_notification' | 'system';
   attachments?: MessageAttachment[];
-  metadata?: {
-    type: 'buyer' | 'seller' | 'buyerCancel' | 'sellerCancel';
-    listingTitle: string;
-    counterpartyUsername: string;
-    transactionId: string;
+  metadata?: TransactionNotificationMetadata;
+  sender: ChatUser;
+  receiver: ChatUser;
+}
+
+/**
+ * Represents an offer in the context of a conversation
+ */
+export interface ChatOffer {
+  id: string;
+  amount: number;
+  status: 'pending' | 'accepted' | 'rejected' | 'expired';
+  createdAt: Date;
+  senderId: string;
+  receiverId: string;
+  listingId: string;
+}
+
+/**
+ * Represents a listing media item
+ */
+export interface ChatListingMedia {
+  id: string;
+  url: string;
+  type: string;
+  isMainMedia?: boolean;
+}
+
+/**
+ * Represents a listing in the context of a conversation
+ */
+export interface ChatListing {
+  id: string;
+  title: string;
+  price: number;
+  currency?: string;
+  images?: string[];
+  mainImage?: string;
+  media?: ChatListingMedia[];
+  user: ChatUser;
+}
+
+/**
+ * Represents a conversation between two users
+ */
+export interface Conversation {
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  buyerId: string;
+  sellerId: string;
+  buyer: ChatUser;
+  seller: ChatUser;
+  messages: Message[];
+  unreadCount?: number;
+  _count?: {
+    messages: number;
   };
-  sender: {
-    id: string;
-    username: string | null;
-    avatar: string | null;
-  };
-  receiver: {
-    id: string;
-    username: string | null;
-    avatar: string | null;
-  };
+  offers?: ChatOffer[];
+  listing?: ChatListing;
+}
+
+/**
+ * Input for sending a new message
+ */
+export interface SendMessageInput {
+  content: string;
+  attachments?: MessageAttachment[];
+}
+
+/**
+ * Input for creating a new offer
+ */
+export interface CreateOfferInput {
+  amount: number;
+  listingId: string;
+  receiverId: string;
 }

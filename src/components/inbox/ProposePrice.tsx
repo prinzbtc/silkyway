@@ -34,7 +34,7 @@ const formSchema = z.object({
 interface ProposePriceProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  listing: Listing;
+  listing: Listing | null;
   conversationId: string;
 }
 
@@ -52,7 +52,7 @@ export default function ProposePrice({
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      amount: listing.price,
+      amount: listing?.price || 0,
     },
   });
 
@@ -107,7 +107,7 @@ export default function ProposePrice({
         <DialogHeader>
           <DialogTitle>Make an offer</DialogTitle>
           <DialogDescription>
-            Enter your offer price for {listing.title}
+            Enter your offer price for {listing?.title || 'this item'}
           </DialogDescription>
         </DialogHeader>
 

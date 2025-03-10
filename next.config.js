@@ -12,12 +12,18 @@ const nextConfig = {
     domains: ['images.unsplash.com'], // Allow Unsplash images
     unoptimized: process.env.NODE_ENV === 'development', // Don't optimize images in development
   },
-  // Configure static file serving for public uploads
+  // Configure static file serving for uploads
   async rewrites() {
     return [
+      // Public uploads (accessible without authentication)
       {
-        source: '/uploads/:type/:path*',
-        destination: '/public/uploads/:type/:path*',
+        source: '/uploads/public/:path*',
+        destination: '/public/uploads/public/:path*',
+      },
+      // Private uploads (require authentication and authorization)
+      {
+        source: '/uploads/medias/:path*',
+        destination: '/api/serve/medias/:path*',
       },
     ];
   },

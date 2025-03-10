@@ -25,21 +25,15 @@ interface MessageBubbleProps {
 }
 
 export default function MessageBubble({ message, isSender }: MessageBubbleProps) {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-
-  const handleDeleteImage = async (imageUrl: string) => {
+  const handleDeleteAttachment = async (attachmentUrl: string) => {
     try {
-      const response = await fetch(`/api/messages/${message.id}/attachments`, {
+      const response = await fetch(`/api/messages/${message.id}/attachments?url=${encodeURIComponent(attachmentUrl)}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ imageUrl }),
       });
 
-      if (!response.ok) throw new Error('Failed to delete image');
+      if (!response.ok) throw new Error('Failed to delete attachment');
     } catch (error) {
-      console.error('Failed to delete image:', error);
+      console.error('Failed to delete attachment:', error);
     }
   };
 
@@ -78,7 +72,7 @@ export default function MessageBubble({ message, isSender }: MessageBubbleProps)
             {message.sender.username || 'Anon'}
           </span>
           <span className="text-xs text-gray-500">
-            {format(new Date(message.createdAt), 'MMM yyyy')}
+            {format(new Date(message.createdAt), 'MMM d, yyyy h:mm a')}
           </span>
           {isSender && message.read && (
             <Check className="h-4 w-4 text-primary" />
@@ -89,7 +83,7 @@ export default function MessageBubble({ message, isSender }: MessageBubbleProps)
         {message.content && (
           <div
             className={cn(
-              'rounded-lg px-4 py-2',
+              'rounded-lg px-4 py-2 whitespace-pre-line',
               isSender
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-accent text-accent-foreground'
@@ -99,7 +93,7 @@ export default function MessageBubble({ message, isSender }: MessageBubbleProps)
           </div>
         )}
 
-        {/* Images */}
+        {/* Attachments */}
         {message.attachments && message.attachments.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {message.attachments
@@ -111,7 +105,7 @@ export default function MessageBubble({ message, isSender }: MessageBubbleProps)
                     <button className="relative h-32 w-32 overflow-hidden rounded-lg">
                       <Image
                         src={attachment.url}
-                        alt={`Image ${index + 1}`}
+                        alt={attachment.name || `Image ${index + 1}`}
                         fill
                         className="object-cover"
                       />
@@ -121,7 +115,7 @@ export default function MessageBubble({ message, isSender }: MessageBubbleProps)
                     <div className="relative h-[80vh]">
                       <Image
                         src={attachment.url}
-                        alt={`Image ${index + 1}`}
+                        alt={attachment.name || `Image ${index + 1}`}
                         fill
                         className="object-contain"
                       />
@@ -140,7 +134,7 @@ export default function MessageBubble({ message, isSender }: MessageBubbleProps)
                     <DropdownMenuContent>
                       <DropdownMenuItem
                         className="text-destructive"
-                        onClick={() => handleDeleteImage(attachment.url)}
+                        onClick={() => handleDeleteAttachment(attachment.url)}
                       >
                         Delete Image
                       </DropdownMenuItem>
@@ -149,6 +143,46 @@ export default function MessageBubble({ message, isSender }: MessageBubbleProps)
                 )}
               </div>
             ))}
+            
+            {/* Non-image attachments */}
+            {message.attachments
+              .filter(attachment => !attachment.type.startsWith('image/'))
+              .map((attachment, index) => (
+                <div key={`file-${index}`} className="relative">
+                  <a 
+                    href={attachment.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-lg border p-3 hover:bg-accent"
+                  >
+                    <div className="flex-1 truncate">
+                      <p className="text-sm font-medium">{attachment.name || `File ${index + 1}`}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {(attachment.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                  </a>
+                  
+                  {/* Delete File Button (only for sender) */}
+                  {isSender && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        className="absolute right-1 top-1 rounded-full bg-background/80 p-1 opacity-0 shadow transition-opacity group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() => handleDeleteAttachment(attachment.url)}
+                        >
+                          Delete File
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              ))}
           </div>
         )}
       </div>

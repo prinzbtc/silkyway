@@ -1,0 +1,40 @@
+
+##Inbox##
+
+- Body : 
+	- Conversations tabs (right-side panel) :
+		- Typically, users are only able to start a conversation by clicking on the "Message" button in a listing page. Clicking on this button will redirect to the inbox page and open a conversation with the listing's seller.
+		- Each conversation tab must contain a miniature image of the selected listing's main picture, the title of the selected listing, the current price (displayed in SOL, with subtext for price converted in USD, EUR or GBP) and the other party's username (or the "anon" placeholder for users who have no username yet)
+		- Unread conversations tabs have bold texts
+	- Conversation feed (center panel) : 
+		- This is the conversation feed of the selected conversation tab (by default, upon landing on the inbox, no conversation tab is selected so the center panel just displays a text like "Select a convo")
+		- On top of the conversation panel, insert a banner containing a miniature image of the selected listing's main picture, the title of the selected listing and the current price (displayed in SOL, with subtext for price converted in USD, EUR or GBP). This will help users to better identify with listing they're discussing about.
+		- Message containers with user's profile picture, username (or "Anon" placeholder if user has no username yet), date (Month+year).
+		- Must display a "viewed" symbol if the message recipient has seen a new message
+	- Chat input box (bottom) : 
+		- Message input box
+		- Max 350 caracters per message (warning message if rule is not met, remove message if user correct input)
+		- No restricted caracters
+		- Button to send pictures (3MB max per file, only jpg, jpeg, png and gif, 3 pictures per upload max, warning message if rules not met)
+		- Emoji picker (we may use something like @emoji-mart/react)
+	- "Make an offer" button (refer to OfferCards-Instructions.txt for additional details): 
+		- Clicking on this button will trigger a small in-app window (ProposePrice) where a user can make an offer by entering a price (displayed in SOL, with subtext for price converted in USD, EUR or GBP). 
+		- This in-app window must contain a field for the proposed price, a "cancel" button and a "ok"  button. 
+		- Upon validating this price (by clicking "Ok"), the in-app window closes and a ToOfferCard (containing a message like "You made this offer"; the crossed out original price and the proposed new price) is being generated and sent in the conversation. 
+		- Only buyers can use this functionnality. 
+		- On the other hand of the conversation, the user who receives the offer will see the corresponding FromOfferCard in his conversation feed with a "Accept" button and a "Reject" button. 
+		- If refused, the other party receives a new RefusedOfferCard message in the conversation, indicating that the other user rejected the offer. 
+		- If accepted, the listing price is updated with the new, agreed price, BUT this updated price can only be seen (in the listing page or in the listingcards accross the app) by the buyer and the seller who made this deal.
+		- When accepted, a new AcceptedOfferCard will appear in the buyer's conversation with the updated price and a "Buy Now" button. When the buyer clicks on the Buy button, he will be redirected to the buying page (to be implemented) where he will be able to buy at the updated price
+		- Similarily, if this specific buyer goes to the item's listing page and clicks on the "Buy" button, he will also be redirected to the buying page where he will be able to buy at the updated price.
+		
+	- Under the chat input box, add a small message like "Be respectful, don't share sensitive informations, etc"
+	- A "Help" button : this button will redirect to our "Help" page, where people can find various informations to help them using the marketplace (we'll create this page later)
+
+Additional notes : 
+
+- Pictures and messages sent in the conversations by the users should be stored in silkyway/private/uploads/message
+- Pictures sent by users can be zoomed by clicking on it in the conversation feed (should not open in full screen size, but just in bigger size, so users can just click next to the image to close it)
+- Pictures sent in the conversation can be selected by the sender (with right-click when using a pc, with long press on mobile) and deleted at will
+- Conversation tabs cannot be deleted by users
+- Just like similar pages that should only be accessible to connected users, ensure that if a non-connected user tries to access this page, the body will only display the "Connect Wallet" component.

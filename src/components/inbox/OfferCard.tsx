@@ -12,7 +12,7 @@ import type { Offer, Listing } from '@/types/conversation';
 
 interface OfferCardProps {
   offer: Offer;
-  listing: Listing;
+  listing: Listing | null;
   isBuyer: boolean;
 }
 
@@ -24,14 +24,14 @@ export default function OfferCard({
   const router = useRouter();
   const { toast } = useToast();
   
-  // Ensure currency is properly typed as Currency and use the actual listing currency
+  // Ensure currency is properly typed as Currency and use the actual listing currency if available
   // This is critical - we must use the currency that was stored with the listing
   // Use normalizeCurrency to ensure proper currency handling regardless of input type
-  const listingCurrency = normalizeCurrency(listing.currency);
+  const listingCurrency = listing ? normalizeCurrency(listing.currency) : 'USD';
   
   // Debug the currency value
-  console.log('OfferCard - Original currency:', listing.currency, 'Normalized currency:', listingCurrency);
-  console.log('OfferCard - Currency type check:', typeof listing.currency, 'Is null?', listing.currency === null, 'Is undefined?', listing.currency === undefined);
+  console.log('OfferCard - Original currency:', listing?.currency, 'Normalized currency:', listingCurrency);
+  console.log('OfferCard - Currency type check:', typeof listing?.currency, 'Is null?', listing?.currency === null, 'Is undefined?', listing?.currency === undefined);
   
   // Use consolidated price hook for listing price
   // IMPORTANT: We must directly pass the currency from the listing to ensure proper conversion
@@ -45,7 +45,7 @@ export default function OfferCard({
     formattedPreferred: listingFormattedPreferred,
     formattedSol: listingFormattedSol,
     showConverted: listingShowConverted
-  } = usePrice(listing.price, listingCurrency);
+  } = usePrice(listing?.price || 0, listingCurrency);
   
   // Use consolidated price hook for offer price
   const { 
@@ -102,6 +102,14 @@ export default function OfferCard({
   };
 
   const handleBuyNow = () => {
+    if (!listing) {
+      toast({
+        title: 'Error',
+        description: 'Listing information is not available',
+        variant: 'destructive',
+      });
+      return;
+    }
     router.push(`/buy/${listing.id}?offerId=${offer.id}`);
   };
 
