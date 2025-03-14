@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import prisma from '@/lib/prisma';
-import { pusherServer } from '@/lib/pusher';
 
 /**
  * Marks all messages in a conversation as read for the current user
@@ -51,19 +50,32 @@ export async function POST(
       },
     });
 
-    // Notify the other user that messages have been read
+    // Notify the other user that messages have been read using Socket.IO
     const otherUserId = conversation.buyerId === session.user.id 
       ? conversation.sellerId 
       : conversation.buyerId;
-
-    await pusherServer.trigger(
-      `user-${otherUserId}`,
-      'messages-read',
-      {
-        conversationId: params.conversationId,
-        readBy: session.user.id,
+      
+    try {
+      const { getSocketIOServer } = await import('../../../../../lib/socketio-server');
+      const io = getSocketIOServer();
+      
+      if (io) {
+        // Emit to the other user's room
+        io.to(`user:${otherUserId}`).emit('messages-read', {
+          conversationId: params.conversationId,
+          readBy: session.user.id,
+        });
+        
+        // Also emit to the conversation room
+        io.to(`conversation:${params.conversationId}`).emit('messages-read', {
+          conversationId: params.conversationId,
+          readBy: session.user.id,
+        });
       }
-    );
+    } catch (socketError) {
+      console.error('Socket.IO error:', socketError);
+      // Continue with the request even if Socket.IO fails
+    }
 
     return NextResponse.json({ 
       success: true, 

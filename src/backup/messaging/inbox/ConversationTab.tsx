@@ -53,21 +53,123 @@ export default function ConversationTab({
     }
   }
   
+  // Enhanced listing data handling with robust fallbacks
+  
   // Ensure we have valid data for display
   const listingTitle = listing?.title || 'Untitled Listing';
   
-  // Get the main media URL from the listing's media array
+  // Get the main media URL from the listing's media array with improved handling
   let listingImage = '/placeholder-image.jpg';
-  if (listing?.media && listing.media.length > 0 && listing.media[0].url) {
-    listingImage = listing.media[0].url;
-  } else if (listing?.mainImage) {
-    // Fallback to mainImage if available (for backward compatibility)
-    listingImage = listing.mainImage;
+  
+  // Log detailed listing information for debugging
+  const mediaType = listing?.media 
+    ? (Array.isArray(listing.media) ? 'array' : typeof listing.media) 
+    : 'undefined';
+    
+  const mediaLength = listing?.media && Array.isArray(listing.media) 
+    ? listing.media.length 
+    : 0;
+    
+  const hasMainImage = listing ? Boolean(listing.mainImage) : false;
+  
+  // Get conversation ID for debugging
+  const conversationId = 'id' in conversation ? conversation.id : 'unknown';
+    
+  console.log(`ConversationTab [${conversationId}] - Listing data:`, {
+    id: listing?.id ?? 'no-id',
+    title: listing?.title ?? 'Untitled',
+    price: listing?.price ?? 0,
+    currency: listing?.currency ?? 'USD',
+    mediaType,
+    mediaLength,
+    hasMainImage,
+    rawListing: listing // Log the entire listing object for debugging
+  });
+  
+  // Robust media extraction with multiple fallback strategies
+  if (listing?.media) {
+    // First attempt: Handle standard media array with objects containing url
+    if (Array.isArray(listing.media) && listing.media.length > 0) {
+      const firstMedia = listing.media[0];
+      
+      // Case 1: Media is an object with url property
+      if (typeof firstMedia === 'object' && firstMedia !== null) {
+        if (firstMedia.url) {
+          listingImage = firstMedia.url;
+          console.log('Using media object URL:', firstMedia.url);
+        } else if ('thumbnail' in firstMedia && firstMedia.thumbnail) {
+          listingImage = (firstMedia as any).thumbnail;
+          console.log('Using media thumbnail URL:', (firstMedia as any).thumbnail);
+        } else if ('src' in firstMedia && (firstMedia as any).src) {
+          // Some APIs return src instead of url
+          listingImage = (firstMedia as any).src;
+          console.log('Using media src URL:', (firstMedia as any).src);
+        }
+      } 
+      // Case 2: Media is a string URL directly
+      else if (typeof firstMedia === 'string') {
+        listingImage = firstMedia;
+        console.log('Using media string URL:', firstMedia);
+      }
+    } 
+    // Second attempt: Handle case where media might be a single object
+    else if (typeof listing.media === 'object' && listing.media !== null) {
+      const mediaObj = listing.media as any;
+      if (mediaObj.url) {
+        listingImage = mediaObj.url;
+        console.log('Using single media object URL:', mediaObj.url);
+      }
+    }
+    // Third attempt: Handle case where media might be a string
+    else if (typeof listing.media === 'string') {
+      listingImage = listing.media;
+      console.log('Using media string:', listing.media);
+    }
   }
   
+  // Fallback strategies if media extraction failed
+  if (listingImage === '/placeholder-image.jpg') {
+    // Try mainImage property
+    if (listing?.mainImage) {
+      listingImage = listing.mainImage;
+      console.log('Using mainImage fallback:', listing.mainImage);
+    }
+    // Try thumbnail property if it exists (using type assertion for optional properties)
+    else if (listing && 'thumbnail' in listing && (listing as any).thumbnail) {
+      listingImage = (listing as any).thumbnail as string;
+      console.log('Using thumbnail fallback:', (listing as any).thumbnail);
+    }
+  }
+  
+  // Make sure the image URL is absolute and valid
+  if (listingImage && typeof listingImage === 'string') {
+    if (!listingImage.startsWith('http') && !listingImage.startsWith('/')) {
+      listingImage = `/${listingImage}`;
+    }
+    
+    // Ensure the URL doesn't contain 'null' or 'undefined' strings which can happen with template literals
+    if (listingImage.includes('null') || listingImage.includes('undefined')) {
+      console.warn('Invalid image URL detected, using placeholder instead:', listingImage);
+      listingImage = '/placeholder-image.jpg';
+    }
+  } else {
+    // Reset to placeholder if listingImage is not a valid string
+    listingImage = '/placeholder-image.jpg';
+  }
+  
+  console.log('Final processed listing image URL:', listingImage);
+  
   // Extract price and currency information
-  const listingPrice = typeof listing?.price === 'number' ? listing.price : 0;
+  const listingPrice = typeof listing?.price === 'number' ? listing.price : 
+                      typeof listing?.price === 'string' ? parseFloat(listing.price) : 0;
   const listingCurrency = normalizeCurrency(listing?.currency || 'USD');
+  
+  console.log('Processed listing data:', {
+    title: listingTitle,
+    image: listingImage,
+    price: listingPrice,
+    currency: listingCurrency
+  });
   
   // Use the price hook for standardized currency handling
   const { 

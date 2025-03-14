@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "jest"
+    "test": "jest",
+    "soketi": "soketi start --config=.soketi.json"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
@@ -68,6 +69,8 @@
     "react-markdown": "^9.0.1",
     "react-select": "^5.10.0",
     "resend": "^4.1.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "swr": "^2.3.2",
     "tailwind-merge": "^3.0.1",
     "tweetnacl": "^1.0.3",

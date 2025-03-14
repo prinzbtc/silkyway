@@ -37,11 +37,13 @@ async function handleRequest(request: Request) {
     
     console.log(`Attempting to delete empty conversation: ${conversationId}`);
 
-
     // Find the conversation
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
+        messages: {
+          take: 1 // Just check if there are any messages, no need to fetch all
+        },
         _count: {
           select: { messages: true }
         }
@@ -62,7 +64,7 @@ async function handleRequest(request: Request) {
     }
 
     // Only delete if the conversation has no messages
-    if (conversation._count.messages > 0) {
+    if (conversation.messages.length > 0 || conversation._count.messages > 0) {
       console.error(`Cannot delete conversation with messages: ${conversationId} (has ${conversation._count.messages} messages)`);
       return NextResponse.json({ error: 'Cannot delete conversation with messages' }, { status: 400 });
     }

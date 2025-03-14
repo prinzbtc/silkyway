@@ -7,10 +7,13 @@
  * Represents a file attachment in a message (image, document, etc.)
  */
 export interface MessageAttachment {
+  id: string;
   url: string;
   type: string; // MIME type (e.g., 'image/jpeg', 'application/pdf')
   size: number; // File size in bytes
-  name?: string; // Optional filename
+  name: string; // Filename
+  file?: File; // Optional File object (client-side only)
+  isVirusDetected?: boolean; // Flag for virus detection
 }
 
 /**
@@ -108,11 +111,61 @@ export interface Conversation {
 }
 
 /**
+ * A standardized conversation type that unifies all the necessary properties
+ * for consistent use across components and APIs
+ */
+export interface UnifiedConversation {
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  buyerId: string;
+  sellerId: string;
+  buyer: {
+    id: string;
+    username: string;
+    avatar: string;
+  };
+  seller: {
+    id: string;
+    username: string;
+    avatar: string;
+  };
+  listing: {
+    id: string;
+    title: string;
+    price: number;
+    currency: string;
+    media: Array<{
+      id: string;
+      url: string;
+      type: string;
+    }>;
+    mainImage: string | null;
+    status: string;
+    description: string;
+    category: string;
+    user: {
+      id: string;
+      username: string;
+      avatar: string;
+    };
+  };
+  messages: Array<Message>;
+  unreadCount: number;
+  _count: {
+    messages: number;
+  };
+  offers: Array<ChatOffer>;
+  lastMessageAt?: Date;
+}
+
+/**
  * Input for sending a new message
  */
 export interface SendMessageInput {
   content: string;
   attachments?: MessageAttachment[];
+  tempId?: string; // Temporary ID for optimistic UI updates
 }
 
 /**

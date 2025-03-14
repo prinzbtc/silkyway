@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { getSession } from '@/lib/auth/session';
-import { pusherClient } from '@/lib/pusher';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { useSocket } from '@/hooks/useSocket';
 import { Notification } from '@/lib/notifications/types';
 
 export function NotificationBell() {
@@ -23,6 +23,9 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Initialize Socket.IO connection
+  const { isConnected, subscribe } = useSocket(session?.user?.id);
+
   useEffect(() => {
     if (!session?.user?.id) return;
 
@@ -33,36 +36,126 @@ export function NotificationBell() {
         setNotifications(data.notifications);
         setUnreadCount(data.unreadCount);
       });
+  }, [session?.user?.id]);
 
-    // Subscribe to real-time updates
-    const channel = pusherClient.subscribe(`user-${session.user.id}`);
+  // Subscribe to real-time notification updates
+  useEffect(() => {
+    if (!isConnected || !session?.user?.id) return;
     
-    channel.bind('new-notification', (notification: Notification) => {
-      setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
+    console.log(`Subscribing to notifications for user: ${session.user.id}`);
+
+    // Handler for new notifications (handles both formats)
+    const handleNewNotification = (data: Notification | { room?: string, data: Notification }) => {
+      // Extract the notification object based on the format
+      const notification = 'id' in data ? data : data.data;
+      
+      console.log('Received new notification:', notification);
+      
+      // Check if this notification is for the current user
+      const notificationData = data as { room?: string, data: Notification };
+      if (notificationData.room && !notificationData.room.includes(session.user.id)) {
+        console.log(`Notification room ${notificationData.room} doesn't match user ${session.user.id}, ignoring`);
+        return;
+      }
+      
+      // Force a refresh of notifications from the server to ensure we have the latest data
+      // This is more reliable than trying to merge client-side
+      fetch('/api/notifications')
+        .then(res => res.json())
+        .then(data => {
+          console.log('Refreshed notifications after receiving new one:', data);
+          setNotifications(data.notifications);
+          setUnreadCount(data.unreadCount);
+        })
+        .catch(err => {
+          console.error('Error refreshing notifications:', err);
+          
+          // Fallback to client-side update if server refresh fails
+          setNotifications(prev => {
+            // Check if notification already exists to avoid duplicates
+            const exists = prev.some(n => n.id === notification.id);
+            if (exists) {
+              console.log(`Notification ${notification.id} already exists, ignoring`);
+              return prev;
+            }
+            console.log(`Adding new notification ${notification.id} to list`);
+            return [notification, ...prev];
+          });
+          
+          setUnreadCount(prev => prev + 1);
+        });
+    };
+    
+    // Subscribe to both notification event formats
+    const unsubscribeNewNotification = subscribe('new-notification', handleNewNotification);
+    const unsubscribeServerNotification = subscribe('server-notification', handleNewNotification);
+
+    // Subscribe to notification read updates
+    const unsubscribeNotificationRead = subscribe('notification-read', (data: { notificationId: string }) => {
+      setNotifications(prev => 
+        prev.map(n => n.id === data.notificationId ? { ...n, read: true } : n)
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
     });
 
     return () => {
-      pusherClient.unsubscribe(`user-${session.user.id}`);
+      unsubscribeNewNotification();
+      unsubscribeServerNotification();
+      unsubscribeNotificationRead();
     };
-  }, [session?.user?.id]);
+  }, [isConnected, session?.user?.id, subscribe]);
 
   const handleNotificationClick = async (notification: Notification) => {
+    console.log(`Handling click on notification: ${notification.id}, read status: ${notification.read}`);
+    
     if (!notification.read) {
-      await fetch(`/api/notifications/${notification.id}/read`, {
-        method: 'POST',
-      });
-      
-      setUnreadCount(prev => Math.max(0, prev - 1));
-      setNotifications(prev =>
-        prev.map(n =>
-          n.id === notification.id ? { ...n, read: true } : n
-        )
-      );
+      try {
+        console.log(`Marking notification ${notification.id} as read`);
+        const response = await fetch(`/api/notifications/${notification.id}/read`, {
+          method: 'POST',
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error(`Failed to mark notification as read: ${response.status}`, errorData);
+          return;
+        }
+        
+        console.log(`Successfully marked notification ${notification.id} as read`);
+        
+        // Update the UI to reflect the read status
+        setUnreadCount(prev => Math.max(0, prev - 1));
+        setNotifications(prev =>
+          prev.map(n =>
+            n.id === notification.id ? { ...n, read: true } : n
+          )
+        );
+      } catch (error) {
+        console.error('Error marking notification as read:', error);
+      }
     }
 
+    // Check for link in notification or metadata
     if (notification.link) {
       window.location.href = notification.link;
+    } else if (notification.metadata) {
+      // Try to parse metadata if it's a string
+      let metadata: any = notification.metadata;
+      if (typeof metadata === 'string') {
+        try {
+          metadata = JSON.parse(metadata);
+        } catch (e) {
+          console.error('Failed to parse notification metadata:', e);
+        }
+      }
+      
+      // If metadata contains a link, navigate to it
+      if (metadata?.link) {
+        window.location.href = metadata.link;
+      } else if (metadata?.conversationId) {
+        // If no link but has conversationId, construct the URL
+        window.location.href = `/inbox?conversationId=${metadata.conversationId}`;
+      }
     }
   };
 
@@ -100,7 +193,7 @@ export function NotificationBell() {
             >
               <div className="font-medium">{notification.title}</div>
               <div className="text-sm text-muted-foreground">
-                {notification.message}
+                {notification.message || notification.content}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
                 {new Date(notification.createdAt).toLocaleDateString()}

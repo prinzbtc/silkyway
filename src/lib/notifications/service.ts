@@ -1,10 +1,20 @@
 import { Resend } from 'resend';
 import { NotificationType, Notification, NotificationPreferences } from './types';
 import prisma from '@/lib/prisma';
-import { pusherServer } from '@/lib/pusher';
 import { redis } from '@/lib/redis';
+import { getSocketIOServer } from '../socketio-server';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Initialize Resend only if API key is available
+let resend: Resend | null = null;
+try {
+  if (process.env.RESEND_API_KEY) {
+    resend = new Resend(process.env.RESEND_API_KEY);
+  } else {
+    console.warn('Resend API key is not set. Email notifications will be disabled.');
+  }
+} catch (error) {
+  console.error('Failed to initialize Resend:', error);
+}
 
 export class NotificationService {
   private static instance: NotificationService;
@@ -50,11 +60,23 @@ export class NotificationService {
     // Send real-time notification
     const preferences = user.notificationPreferences as unknown as NotificationPreferences;
     if (preferences?.inApp?.enabled && preferences.inApp.types.includes(type)) {
-      await pusherServer.trigger(
-        `user-${userId}`,
-        'new-notification',
-        notification
-      );
+      try {
+        // Get the global Socket.IO server instance
+        const io = getSocketIOServer();
+        
+        if (io) {
+          console.log(`Emitting notification to user:${userId}`);
+          
+          // Emit the notification directly to the user's room
+          io.to(`user:${userId}`).emit('new-notification', notification);
+        } else {
+          console.error('Socket.IO server not initialized, cannot send real-time notification');
+        }
+      } catch (socketError) {
+        console.error('Socket.IO notification error:', socketError);
+        // Continue even if Socket.IO fails
+        // This ensures the notification is saved even if real-time updates fail
+      }
     }
 
     // Send email notification if enabled
@@ -102,6 +124,12 @@ export class NotificationService {
     message: string,
     metadata?: Record<string, any>
   ) {
+    // Skip email sending if Resend is not initialized
+    if (!resend) {
+      console.warn('Email sending skipped: Resend client not initialized');
+      return;
+    }
+    
     const template = this.getEmailTemplate(type, title, message, metadata);
 
     await resend.emails.send({
@@ -155,7 +183,7 @@ export class NotificationService {
       },
     });
 
-    await redis.setex(cacheKey, 300, count.toString()); // Cache for 5 minutes
+    await redis.set(cacheKey, count.toString(), { ex: 300 }); // Cache for 5 minutes
 
     return count;
   }

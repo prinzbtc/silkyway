@@ -68,12 +68,16 @@ export default function MessageBubble({ message, isSender }: MessageBubbleProps)
             isSender ? 'flex-row-reverse' : 'flex-row'
           )}
         >
-          <span className="font-medium">
-            {message.sender.username || 'Anon'}
-          </span>
           <span className="text-xs text-gray-500">
             {format(new Date(message.createdAt), 'MMM d, yyyy h:mm a')}
           </span>
+          {isSender ? (
+            <span className="font-medium">You</span>
+          ) : (
+            <span className="font-medium">
+              {message.sender.username || 'Anon'}
+            </span>
+          )}
           {isSender && message.read && (
             <Check className="h-4 w-4 text-primary" />
           )}

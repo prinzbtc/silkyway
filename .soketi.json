@@ -1,0 +1,18 @@
+{
+  "debug": true,
+  "port": 6001,
+  "appManager.driver": "array",
+  "appManager.array.apps": [
+    {
+      "id": "app-id",
+      "key": "app-key",
+      "secret": "app-secret",
+      "maxConnections": -1,
+      "enableClientMessages": true,
+      "enabled": true,
+      "maxBackendEventsPerSecond": -1,
+      "maxClientEventsPerSecond": -1,
+      "maxReadRequestsPerSecond": -1
+    }
+  ]
+}

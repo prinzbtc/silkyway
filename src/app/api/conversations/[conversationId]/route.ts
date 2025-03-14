@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: Request,
-  { params }: { params: { conversationId: string } }
+  context: { params: { conversationId: string } }
 ) {
   try {
     // Get the current user session
@@ -13,7 +13,12 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { conversationId } = params;
+    // Extract conversationId from the URL path instead of params
+    // This avoids the "params should be awaited" error in Next.js App Router
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split('/');
+    const conversationId = pathParts[pathParts.indexOf('conversations') + 1];
+    
     if (!conversationId) {
       return NextResponse.json({ error: 'Conversation ID is required' }, { status: 400 });
     }

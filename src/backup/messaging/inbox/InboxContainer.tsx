@@ -2,20 +2,64 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { pusherClient } from '@/lib/pusher';
 import ConversationList from './ConversationList';
 import ConversationFeed from './ConversationFeed';
 import { Button } from '@/components/ui/button';
 import { HelpCircle } from 'lucide-react';
+// Import the Socket.IO hook
+import { useSocketIO } from '@/hooks/useSocketIO';
 
 import { Conversation } from '@/types/conversation';
 import type { Conversation as ChatConversation, ChatUser, Message as ChatMessage } from '@/types/chat';
+import { UnifiedConversation, isUnifiedConversation } from '@/types/unifiedConversation';
 
-// Define a union type to handle both conversation formats
-type AnyConversation = Conversation | ChatConversation;
+// Define a union type to handle all conversation formats
+type AnyConversation = Conversation | ChatConversation | UnifiedConversation;
+
+// Define a type for the component state to avoid type conflicts
+type ConversationState = AnyConversation[];
+
+// Create a type guard to check conversation types
+function isConversationArray(arr: any[]): arr is Conversation[] {
+  return arr.length === 0 || 'otherUser' in arr[0];
+}
+
+// Type assertion function to handle type compatibility issues
+function assertConversationType<T extends AnyConversation>(conv: T): T {
+  return conv as T;
+}
+
+// Type guard for ChatConversation
+function isChatConversation(conv: AnyConversation): conv is ChatConversation {
+  return 'seller' in conv && !('lastMessageAt' in conv);
+}
+
+// Type guard for Conversation
+function isConversation(conv: AnyConversation): conv is Conversation {
+  return 'otherUser' in conv;
+}
+
+// Helper function to safely update lastMessageAt
+function updateLastMessageAt(conversation: AnyConversation): void {
+  if (isUnifiedConversation(conversation)) {
+    conversation.lastMessageAt = new Date();
+  } else if (isChatConversation(conversation)) {
+    // For ChatConversation, add lastMessageAt property
+    (conversation as any).lastMessageAt = new Date();
+  }
+}
+
+// Helper function to safely update seller
+function updateSeller(conversation: AnyConversation, seller: any): void {
+  if (isUnifiedConversation(conversation)) {
+    conversation.seller = seller;
+  } else if (isChatConversation(conversation)) {
+    (conversation as any).seller = seller;
+  }
+}
 
 // Adapter function to convert between conversation types
-const adaptConversationForFeed = (conversation: Conversation): ChatConversation => {
+const adaptConversationForFeed = (conversation: Conversation): ChatConversation | UnifiedConversation => {
   const otherUser = conversation.otherUser;
   
   // Create a ChatUser from the otherUser
@@ -56,7 +100,7 @@ export default function InboxContainer({
   initialConversationId,
 }: InboxContainerProps) {
   const router = useRouter();
-  const [conversations, setConversations] = useState<AnyConversation[]>(initialConversations);
+  const [conversations, setConversations] = useState<AnyConversation[]>(initialConversations as AnyConversation[]);
   const [selectedConversation, setSelectedConversation] = useState<AnyConversation | null>(null);
 
   // Function to mark a conversation as read
@@ -232,52 +276,216 @@ export default function InboxContainer({
     }
   }, [newEmptyConversation]);
 
-  useEffect(() => {
-    // Subscribe to user's conversation channel
-    const channel = pusherClient.subscribe(`user-${userId}`);
+  // Initialize Socket.IO connection
+  const { socket, isConnected } = useSocketIO();
 
-    channel.bind('new-message', (data: any) => {
+  // Join user room when socket is connected
+  useEffect(() => {
+    if (!socket || !isConnected || !userId) return;
+    
+    console.log(`Joining user room: user:${userId}`);
+    socket.emit('join-user', userId);
+    
+    return () => {
+      console.log(`Leaving user room: user:${userId}`);
+      socket.emit('leave-user', userId);
+    };
+  }, [socket, isConnected, userId]);
+
+  useEffect(() => {
+    if (!socket) return;
+    
+    // Handle new messages
+    const handleNewMessage = (data: any) => {
+      console.log('Received new-message event:', data);
+      
+      // Check if we have the complete conversation data
+      const hasCompleteData = data.conversation && 
+                             data.conversation.listing && 
+                             data.conversation.buyer && 
+                             data.conversation.seller;
+      
+      console.log('Has complete conversation data:', hasCompleteData, data.conversation);
+      
       setConversations((prev) => {
         const conversationIndex = prev.findIndex((c) => c.id === data.conversationId);
-        if (conversationIndex === -1) return prev;
-
+        
+        // Create a new array of conversations
         const newConversations = [...prev];
+        
+        if (conversationIndex === -1) {
+          // If conversation doesn't exist yet, add the new conversation if we have complete data
+          if (hasCompleteData) {
+            console.log('Adding new conversation to list');
+            return [data.conversation, ...prev];
+          }
+          console.log('Conversation not found in existing list, fetching it');
+          return prev;
+        }
+        
+        // Get the existing conversation and create a copy to modify
         const conversation = { ...newConversations[conversationIndex] };
         
         // Update message count and latest message
         conversation._count = {
           messages: (conversation._count?.messages ?? 0) + (data.senderId !== userId ? 1 : 0)
         };
-        conversation.messages = [data.message];
-        conversation.updatedAt = new Date().toISOString(); // Convert Date to string for the conversation type
-
+        
+        // Keep existing messages and add the new one for the conversation list preview
+        if (Array.isArray(conversation.messages)) {
+          // If we already have messages, add the new one
+          conversation.messages = [...conversation.messages, data.message];
+        } else {
+          // If we don't have messages yet, initialize with the new one
+          conversation.messages = [data.message];
+        }
+        
+        // Update the conversation's timestamp
+        conversation.updatedAt = new Date().toISOString();
+        
+        // Add lastMessageAt for UnifiedConversation type
+        updateLastMessageAt(conversation);
+        
+        // If the data includes conversation details with listing information, update it
+        if (hasCompleteData) {
+          // For UnifiedConversation type, we can directly use the data
+          if (data.conversation.listing) {
+            conversation.listing = data.conversation.listing;
+          }
+          
+          // Handle buyer and seller based on conversation type
+          if (data.conversation.buyer) {
+            if (isConversation(conversation)) {
+              // For Conversation type, update the otherUser or buyer as appropriate
+              if (conversation.listing?.user?.id !== data.conversation.buyer.id) {
+                conversation.otherUser = data.conversation.buyer;
+              } else {
+                conversation.buyer = data.conversation.buyer;
+              }
+            } else {
+              // For ChatConversation or UnifiedConversation
+              conversation.buyer = data.conversation.buyer;
+            }
+          }
+          
+          if (data.conversation.seller) {
+            if (isConversation(conversation)) {
+              // For Conversation type, update the otherUser or seller as appropriate
+              if (conversation.listing?.user?.id === data.conversation.seller.id) {
+                conversation.otherUser = data.conversation.seller;
+              }
+            } else {
+              // For ChatConversation or UnifiedConversation
+              updateSeller(conversation, data.conversation.seller);
+            }
+          }
+        }
+        
         // Move conversation to top
         newConversations.splice(conversationIndex, 1);
         newConversations.unshift(conversation);
-
+        
         return newConversations;
       });
-    });
+      
+      // If this conversation is currently selected, update it with the new message
+      if (selectedConversation && data.conversationId === selectedConversation.id) {
+        setSelectedConversation(prev => {
+          if (!prev) return null;
+          
+          const updated = { ...prev };
+          
+          // Add the new message to the existing messages
+          if (Array.isArray(updated.messages)) {
+            // Check if this message is already in the array (to avoid duplicates)
+            const messageExists = updated.messages.some(msg => msg.id === data.message.id);
+            if (!messageExists) {
+              updated.messages = [...updated.messages, data.message];
+            }
+          } else {
+            updated.messages = [data.message];
+          }
+          
+          // Update with UnifiedConversation data if available
+          if (data.conversation) {
+            if (data.conversation.listing) {
+              updated.listing = data.conversation.listing;
+            }
+            
+            // Handle buyer and seller based on conversation type
+            if (data.conversation.buyer) {
+              if (isConversation(updated)) {
+                // For Conversation type, update the otherUser or buyer as appropriate
+                if (updated.listing?.user?.id !== data.conversation.buyer.id) {
+                  updated.otherUser = data.conversation.buyer;
+                } else {
+                  updated.buyer = data.conversation.buyer;
+                }
+              } else {
+                // For ChatConversation or UnifiedConversation
+                updated.buyer = data.conversation.buyer;
+              }
+            }
+            
+            if (data.conversation.seller) {
+              if (isConversation(updated)) {
+                // For Conversation type, update the otherUser or seller as appropriate
+                if (updated.listing?.user?.id === data.conversation.seller.id) {
+                  updated.otherUser = data.conversation.seller;
+                }
+              } else {
+                // For ChatConversation or UnifiedConversation
+                updateSeller(updated, data.conversation.seller);
+              }
+            }
+            
+            // Update lastMessageAt for UnifiedConversation type
+            updateLastMessageAt(updated);
+          }
+          
+          // Update with UnifiedConversation data if available
+          if (data.conversation) {
+            if (data.conversation.listing) {
+              updated.listing = data.conversation.listing;
+            }
+            if (data.conversation.buyer) {
+              updated.buyer = data.conversation.buyer;
+            }
+            if (data.conversation.seller) {
+              // Use type assertion to handle property access safely
+              (updated as any).seller = data.conversation.seller;
+            }
+            // Use type assertion to handle property access safely
+            (updated as any).lastMessageAt = new Date().toISOString();
+          }
+          
+          return updated;
+        });
+      }
+    };
 
-    channel.bind('message-read', (data: any) => {
+    // Handle messages being read
+    const handleMessagesRead = (data: any) => {
       setConversations((prev) =>
         prev.map((conv) => {
           if (conv.id === data.conversationId) {
             return {
               ...conv,
               _count: { messages: 0 },
+              unreadCount: 0,
               messages: conv.messages.map((msg: any) => ({
                 ...msg,
-                viewed: true,
+                read: true,
               })),
             };
           }
           return conv;
         })
       );
-    });
+    };
 
-    channel.bind('new-offer', (data: any) => {
+    // Handle new offers
+    const handleNewOffer = (data: any) => {
       setConversations((prev) => {
         const conversationIndex = prev.findIndex((c) => c.id === data.conversationId);
         if (conversationIndex === -1) return prev;
@@ -287,7 +495,10 @@ export default function InboxContainer({
         
         // Update offers
         conversation.offers = [...(conversation.offers ?? []), data.offer];
-        conversation.updatedAt = new Date().toISOString(); // Convert Date to string for the conversation type
+        conversation.updatedAt = new Date().toISOString();
+        
+        // Update lastMessageAt for UnifiedConversation type
+        updateLastMessageAt(conversation);
 
         // Move conversation to top
         newConversations.splice(conversationIndex, 1);
@@ -295,12 +506,47 @@ export default function InboxContainer({
 
         return newConversations;
       });
-    });
-
-    return () => {
-      pusherClient.unsubscribe(`user-${userId}`);
     };
-  }, [userId]);
+
+    // Handle conversation updates
+    const handleConversationUpdate = (data: any) => {
+      if (!data.conversation) return;
+      
+      setConversations((prev) => {
+        const conversationIndex = prev.findIndex((c) => c.id === data.conversationId);
+        
+        // If conversation doesn't exist, add it
+        if (conversationIndex === -1) {
+          return [data.conversation, ...prev];
+        }
+        
+        // Otherwise update the existing conversation
+        const newConversations = [...prev];
+        newConversations[conversationIndex] = {
+          ...newConversations[conversationIndex],
+          ...data.conversation,
+          // Preserve messages if they're not in the update
+          messages: data.conversation.messages || newConversations[conversationIndex].messages
+        };
+        
+        return newConversations;
+      });
+    };
+
+    // Register Socket.IO event listeners
+    socket.on('new-message', handleNewMessage);
+    socket.on('messages-read', handleMessagesRead);
+    socket.on('new-offer', handleNewOffer);
+    socket.on('conversation-update', handleConversationUpdate);
+
+    // Clean up event listeners on unmount
+    return () => {
+      socket.off('new-message', handleNewMessage);
+      socket.off('messages-read', handleMessagesRead);
+      socket.off('new-offer', handleNewOffer);
+      socket.off('conversation-update', handleConversationUpdate);
+    };
+  }, [socket, userId, selectedConversation]);
 
   const handleConversationSelect = (conversation: AnyConversation) => {
     setSelectedConversation(conversation);
@@ -316,7 +562,7 @@ export default function InboxContainer({
       {/* Conversation List */}
       <div className="w-80 shrink-0 overflow-y-auto rounded-lg border">
         <ConversationList
-          conversations={conversations}
+          conversations={conversations as any[]}
           selectedId={selectedConversation?.id ?? null}
           onSelect={handleConversationSelect}
           userId={userId}
@@ -327,9 +573,9 @@ export default function InboxContainer({
       <div className="flex flex-1 flex-col overflow-hidden rounded-lg border">
         {selectedConversation ? (
           <ConversationFeed
-            conversation={'otherUser' in selectedConversation 
-              ? adaptConversationForFeed(selectedConversation as Conversation)
-              : selectedConversation as ChatConversation}
+            conversation={isConversation(selectedConversation)
+              ? adaptConversationForFeed(selectedConversation)
+              : (selectedConversation as ChatConversation | UnifiedConversation)}
             userId={userId}
           />
         ) : (

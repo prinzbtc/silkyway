@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth/session';
 import prisma from '@/lib/prisma';
 import ConnectWallet from '@/components/wallet/ConnectWallet';
-import InboxContainer from '@/components/inbox/InboxContainer';
+import InboxClientWrapper from '@/components/chat/InboxClientWrapper';
 
 export const metadata: Metadata = {
   title: 'Inbox - Silkyway',
@@ -204,13 +204,16 @@ export default async function InboxPage({
     }
   });
 
-  // Group messages by conversation (sender-receiver pair)
+  // Group messages by conversation ID
   const messageConversations = messages.reduce((acc, message) => {
+    // Use the actual conversation ID from the database instead of creating a synthetic ID
+    const conversationId = message.conversationId;
     const otherUser = message.senderId === session.user.id ? message.receiver : message.sender;
-    const conversationId = [message.senderId, message.receiverId].sort().join('-');
     
     if (!acc[conversationId]) {
-      const transaction = transactionsByConversation.get(conversationId);
+      // Find the transaction for this conversation if it exists
+      const syntheticId = [message.senderId, message.receiverId].sort().join('-');
+      const transaction = transactionsByConversation.get(syntheticId);
       const latestOffer = transaction?.offer;
 
       acc[conversationId] = {
@@ -288,14 +291,11 @@ export default async function InboxPage({
     }
   }
 
+  // Server-side rendered part with client component wrapper
   return (
     <main className="container mx-auto px-4 py-8">
-      <InboxContainer 
-        conversations={Object.values(allConversations)}
-        userId={session.user.id}
-        initialConversationId={conversationId}
-        key={conversationId || 'default'} // Force re-render when conversationId changes
-      />
+      <h1 className="text-2xl font-bold mb-6">Inbox</h1>
+      <InboxClientWrapper />
     </main>
   );
 }

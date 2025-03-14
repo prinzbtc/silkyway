@@ -14,6 +14,10 @@ export interface SessionData {
     id: string;
     walletAddress: string;
     isAdmin?: boolean;
+    name?: string | null;
+    username?: string | null;
+    image?: string | null;
+    avatar?: string | null;
   };
   exp: number;
 }

@@ -27,9 +27,11 @@ export interface Notification {
   userId: string;
   type: NotificationType;
   title: string;
-  message: string;
-  link?: string;
+  content: string;  // From database schema
+  message?: string; // For backward compatibility
+  link?: string;    // Virtual field, not in database
   read: boolean;
   createdAt: Date;
-  metadata?: Record<string, any>;
+  updatedAt: Date;
+  metadata?: Record<string, any> | string; // Can be string if stored as JSON
 }
