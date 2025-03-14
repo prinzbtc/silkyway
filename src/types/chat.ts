@@ -14,6 +14,10 @@ export interface MessageAttachment {
   name: string; // Filename
   file?: File; // Optional File object (client-side only)
   isVirusDetected?: boolean; // Flag for virus detection
+  isProcessing?: boolean; // Flag for processing state (scanning, compressing)
+  isCompressed?: boolean; // Flag indicating if the file was compressed
+  tempUrl?: string; // Temporary URL for the file before finalization
+  tempFilename?: string; // Temporary filename for the file before finalization
 }
 
 /**

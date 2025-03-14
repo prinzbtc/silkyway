@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import { writeFile, mkdir } from 'fs/promises';
+import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { UPLOAD_CONFIG } from '@/config/upload';
@@ -30,12 +31,16 @@ export async function POST(req: Request) {
     const formData = await req.formData();
     const file = formData.get('file') as File;
     const purpose = formData.get('purpose') as string || 'general';
+    const scanOnly = formData.get('scanOnly') === 'true';
+    const skipTemp = formData.get('skipTemp') === 'true';
     
     console.log('Upload request received:', { 
       fileName: file?.name,
       fileSize: file?.size,
       purpose,
-      contentType: file?.type
+      contentType: file?.type,
+      scanOnly,
+      skipTemp
     });
 
     if (!file) {
@@ -56,24 +61,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Simulate virus detection for test files
-    if (file.name.includes('test-virus')) {
-      console.log('Simulating virus detection for test file:', file.name);
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Virus detected: EICAR-Test-Signature FOUND' 
-        },
-        { status: 400 }
-      );
-    }
-// Handle different upload purposes
+    // Handle different upload purposes
     if (purpose === 'report') {
       return handleReportUpload(file);
     } else if (purpose === 'listings') {
       return handleListingMediaUpload(file);
     } else {
-      return handleGeneralUpload(file);
+      // Pass the scanOnly and skipTemp options to handleGeneralUpload
+      return handleGeneralUpload(file, { scanOnly, skipTemp });
     }
   } catch (error) {
     console.error('Error in main upload handler:', error);
@@ -232,7 +227,7 @@ async function handleListingMediaUpload(file: File) {
   }
 }
 
-async function handleGeneralUpload(file: File) {
+async function handleGeneralUpload(file: File, options = { scanOnly: false, skipTemp: false }) {
   // Validate file type for general uploads
   if (![...UPLOAD_CONFIG.IMAGE.ALLOWED_TYPES, ...UPLOAD_CONFIG.VIDEO.ALLOWED_TYPES].includes(file.type)) {
     return new NextResponse('Invalid file type', { status: 400 });
@@ -271,15 +266,109 @@ async function handleGeneralUpload(file: File) {
       console.log('Antivirus scan completed successfully. General upload file is clean.');
     }
     
-    // Return temporary file information
-    return NextResponse.json({
-      success: true,
-      url: `/uploads/temp/${filename}`,
-      filename
-    });
+    // If scanOnly is true, return the temp file info without moving but still attempt compression
+    if (options.scanOnly) {
+      console.log('Scan-only mode: performing compression but not moving to permanent storage');
+      
+      // We'll skip compression at this stage and only compress during finalization
+      // This avoids double compression and is more efficient
+      let compressionFailed = false;
+      if (result.type === 'IMAGE' || result.type === 'VIDEO') {
+        console.log(`Skipping compression for ${result.type.toLowerCase()} file at scan stage:`, result.filepath);
+        console.log(`File will be compressed during finalization. Current size: ${fs.statSync(result.filepath).size} bytes`);
+      }
+      
+      return NextResponse.json({
+        success: true,
+        url: `/api/media/temp/${filename}`, // Temporary URL for preview
+        filename: filename,
+        originalFilename: file.name,
+        tempFile: true,
+        compressionFailed: compressionFailed
+      });
+    }
+    
+    // Create the private media directory if it doesn't exist
+    const MEDIA_UPLOAD_DIR = path.join(process.cwd(), 'private', 'uploads', 'medias');
+    await mkdir(MEDIA_UPLOAD_DIR, { recursive: true });
+    console.log('Media upload directory created/verified:', MEDIA_UPLOAD_DIR);
+    
+    // Compress and move the file to the private media directory
+    console.log('Compressing and moving file to private media directory...');
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    
+    // Generate a new unique filename for the final media file
+    const fileExtension = path.extname(filename);
+    const randomName = crypto.randomBytes(16).toString('hex');
+    const finalFilename = `${randomName}${fileExtension}`;
+    const finalFilepath = path.join(MEDIA_UPLOAD_DIR, finalFilename);
+    
+    try {
+      // Use ffmpeg to compress the file
+      const util = require('util');
+      const exec = util.promisify(require('child_process').exec);
+      
+      if (isImage) {
+        // Compress image using ffmpeg with high compression (quality 5, lower = higher compression)
+        console.log('Compressing image using ffmpeg with high compression...');
+        const ffmpegCommand = `ffmpeg -y -i "${result.filepath}" -q:v 5 "${finalFilepath}"`;
+        console.log('ffmpeg command:', ffmpegCommand);
+        await exec(ffmpegCommand);
+        
+        // Log the compression ratio achieved
+        const originalSize = fs.statSync(result.filepath).size;
+        const compressedSize = fs.statSync(finalFilepath).size;
+        const compressionRatio = originalSize / compressedSize;
+        console.log(`Image compression complete. Original: ${originalSize} bytes, Compressed: ${compressedSize} bytes, Ratio: ${compressionRatio.toFixed(2)}x`);
+      } else if (isVideo) {
+        // Compress video using ffmpeg with high compression (CRF 30, higher = higher compression)
+        console.log('Compressing video using ffmpeg with high compression...');
+        const ffmpegCommand = `ffmpeg -y -i "${result.filepath}" -vcodec libx264 -crf 30 "${finalFilepath}"`;
+        console.log('ffmpeg command:', ffmpegCommand);
+        await exec(ffmpegCommand);
+        
+        // Log the compression ratio achieved
+        const originalSize = fs.statSync(result.filepath).size;
+        const compressedSize = fs.statSync(finalFilepath).size;
+        const compressionRatio = originalSize / compressedSize;
+        console.log(`Video compression complete. Original: ${originalSize} bytes, Compressed: ${compressedSize} bytes, Ratio: ${compressionRatio.toFixed(2)}x`);
+      } else {
+        // For other file types, just copy the file
+        console.log('Copying file to private media directory...');
+        const fs = require('fs');
+        fs.copyFileSync(result.filepath, finalFilepath);
+      }
+      
+      console.log('File successfully compressed and moved to:', finalFilepath);
+      
+      // Return the media file information
+      // Note: We're using a special API route to serve private files
+      return NextResponse.json({
+        success: true,
+        url: `/api/media/${finalFilename}`,
+        filename: finalFilename,
+        originalFilename: file.name
+      });
+    } catch (compressionError) {
+      console.error('Error compressing/moving file:', compressionError);
+      
+      // If compression fails, still move the original file to ensure it's saved
+      console.log('Falling back to direct file copy...');
+      const fs = require('fs');
+      fs.copyFileSync(result.filepath, finalFilepath);
+      
+      return NextResponse.json({
+        success: true,
+        url: `/api/media/${finalFilename}`,
+        filename: finalFilename,
+        originalFilename: file.name,
+        compressionFailed: true
+      });
+    }
   } catch (error) {
-    console.error('Error saving temp file in handleGeneralUpload:', error);
+    console.error('Error in handleGeneralUpload:', error);
     console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
-    return new NextResponse(`Failed to save file: ${error instanceof Error ? error.message : 'Unknown error'}`, { status: 500 });
+    return new NextResponse(`Failed to process file: ${error instanceof Error ? error.message : 'Unknown error'}`, { status: 500 });
   }
 }
