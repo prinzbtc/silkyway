@@ -214,9 +214,30 @@ export default async function handler(
     socket.on('mark_messages_read', async (data) => {
       try {
         const { conversationId } = data;
+        console.log(`User ${userId} marking messages as read in conversation ${conversationId}`);
+        
+        // Get the conversation to determine the other user
+        const conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          select: {
+            id: true,
+            buyerId: true,
+            sellerId: true
+          }
+        });
+        
+        if (!conversation) {
+          console.error(`Conversation ${conversationId} not found`);
+          return;
+        }
+        
+        // Determine the sender ID (the other user)
+        const senderId = conversation.buyerId === userId 
+          ? conversation.sellerId 
+          : conversation.buyerId;
         
         // Update messages as read
-        await prisma.message.updateMany({
+        const result = await prisma.message.updateMany({
           where: {
             conversationId,
             receiverId: userId,
@@ -226,15 +247,43 @@ export default async function handler(
             read: true
           }
         });
+        
+        console.log(`Marked ${result.count} messages as read in conversation ${conversationId}`);
 
-        // Notify the sender that their messages have been read
-        socket.to(`conversation:${conversationId}`).emit('message_read', {
+        // Prepare the read notification data
+        const readData = {
           conversationId,
           readerId: userId,
+          senderId: senderId, // Include the sender ID for better targeting
           timestamp: new Date().toISOString()
-        });
+        };
+        
+        // Emit to the conversation room
+        socket.to(`conversation:${conversationId}`).emit('message_read', readData);
+        
+        // Also emit directly to the sender's user room to ensure delivery
+        socket.to(`user:${senderId}`).emit('message_read', readData);
+        
+        // Broadcast to all users in the conversation (including the current user)
+        io.to(`conversation:${conversationId}`).emit('message_read', readData);
+        
+        // Also emit directly to both users to ensure delivery
+        io.to(`user:${senderId}`).emit('message_read', readData);
+        io.to(`user:${userId}`).emit('message_read', readData);
+        
+        console.log(`Emitted message_read event to all users in conversation ${conversationId}`);
       } catch (error) {
         console.error('Error marking messages as read:', error);
+      }
+    });
+    
+    // Also handle the hyphenated version for compatibility
+    socket.on('mark-messages-read', async (data) => {
+      try {
+        // Forward to the underscore version for consistent handling
+        socket.emit('mark_messages_read', data);
+      } catch (error) {
+        console.error('Error forwarding mark-messages-read event:', error);
       }
     });
 

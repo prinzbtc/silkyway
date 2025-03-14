@@ -4,6 +4,13 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Conversation } from '@/types/chat';
+
+// CRITICAL FIX: Define extended conversation type with UI state properties
+type ExtendedConversation = Conversation & {
+  _forceHideBadge?: boolean;
+  _version?: number;
+  lastUpdateTimestamp?: number;
+};
 import ConversationItem from './ConversationItem';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,8 +30,8 @@ export default function ConversationList({
   const router = useRouter();
   const { data: session } = useAuth();
   const { subscribe } = useChat();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
+  const [conversations, setConversations] = useState<ExtendedConversation[]>([]);
+  const [filteredConversations, setFilteredConversations] = useState<ExtendedConversation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [internalActiveConversationId, setInternalActiveConversationId] = useState<string | null>(null);
@@ -85,27 +92,119 @@ export default function ConversationList({
     };
 
     const handleMessageRead = (data: any) => {
-      const { conversationId, readerId } = data;
+      const { conversationId, readerId, senderId } = data;
       
-      // Only update if the reader is the current user
-      if (readerId === session.user?.id) {
-        setConversations(prevConversations => {
-          return prevConversations.map(conversation => {
-            if (conversation.id === conversationId) {
-              return { ...conversation, unreadCount: 0 };
+      console.log('ConversationList received message_read event:', data);
+      
+      // Always update the conversation list regardless of who read the messages
+      // This ensures maximum reliability for real-time updates
+      setConversations(prevConversations => {
+        return prevConversations.map(conversation => {
+          if (conversation.id === conversationId) {
+            console.log(`Updating conversation ${conversationId} based on message_read event`);
+            
+            // Create a new conversation object to trigger React re-render
+            const updatedConversation = { ...conversation };
+            
+            // Case 1: Current user is the reader - update their unread count
+            if (readerId === session.user?.id) {
+              console.log('Current user is the reader - resetting unread count');
+              updatedConversation.unreadCount = 0;
             }
-            return conversation;
-          });
+            
+            // Case 2: Current user is the sender - mark their messages as read
+            if (senderId === session.user?.id) {
+              console.log('Current user is the sender - marking messages as read');
+              if (updatedConversation.messages) {
+                updatedConversation.messages = updatedConversation.messages.map(message => {
+                  if (message.senderId === session.user?.id) {
+                    return { ...message, read: true };
+                  }
+                  return message;
+                });
+              }
+            }
+            
+            // Force a UI update with a timestamp property
+            const updatedWithTimestamp = {
+              ...updatedConversation,
+              lastUpdateTimestamp: Date.now() // Use a valid property name
+            };
+            
+            return updatedWithTimestamp;
+          }
+          return conversation;
         });
-      }
+      });
     };
 
     const unsubscribeNewMessage = subscribe('new_message', handleNewMessage);
     const unsubscribeMessageRead = subscribe('message_read', handleMessageRead);
+    
+    // CRITICAL FIX: Listen for the special force_update_read_status event
+    // This event is specifically emitted to force UI updates for read status
+    const unsubscribeForceUpdate = subscribe('force_update_read_status', (data: any) => {
+      console.log('CRITICAL FIX: ConversationList received force_update_read_status event:', data);
+      const { conversationId, readerId, senderId, otherUserId } = data;
+      
+      // Force update the conversation list to ensure read status is reflected
+      setConversations(prevConversations => {
+        return prevConversations.map(conversation => {
+          if (conversation.id === conversationId) {
+            console.log(`CRITICAL FIX: Force updating conversation ${conversationId}`);
+            
+            // Create a new conversation object to trigger React re-render
+            const updatedConversation = { ...conversation };
+            
+            // CRITICAL FIX: Always reset unread count when this event is received
+            // This is the most reliable way to ensure unread counts are accurate
+            if (session.user?.id === readerId) {
+              // If current user is the reader, reset their unread count
+              console.log('CRITICAL FIX: Current user is reader - resetting unread count to 0');
+              updatedConversation.unreadCount = 0;
+            } else if (session.user?.id === senderId || session.user?.id === otherUserId) {
+              // If current user is the sender or the other user, their messages were read
+              console.log('CRITICAL FIX: Current user is sender - marking messages as read');
+              // Force unread count to 0 to ensure UI updates
+              updatedConversation.unreadCount = 0;
+              
+              // Add a special flag to force badge hiding in ConversationItem
+              updatedConversation._forceHideBadge = true;
+            }
+            
+            // If the conversation has messages, mark them as read
+            if (updatedConversation.messages) {
+              updatedConversation.messages = updatedConversation.messages.map(message => {
+                // Mark ALL messages from current user as read
+                if (message.senderId === session.user?.id) {
+                  return { ...message, read: true };
+                }
+                return message;
+              });
+            }
+            
+            // Force a UI update with a timestamp property and version
+            return {
+              ...updatedConversation,
+              _version: Date.now(), // Use a property that will trigger re-renders
+              lastUpdateTimestamp: Date.now() 
+            };
+          }
+          return conversation;
+        });
+      });
+      
+      // CRITICAL FIX: Also update filtered conversations to ensure search results update
+      setFilteredConversations(prev => {
+        // Return a new array to trigger re-render
+        return [...prev];
+      });
+    });
 
     return () => {
       unsubscribeNewMessage();
       unsubscribeMessageRead();
+      unsubscribeForceUpdate();
     };
   }, [session?.user?.id, activeConversationId, subscribe]);
 

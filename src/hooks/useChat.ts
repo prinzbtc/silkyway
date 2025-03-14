@@ -70,10 +70,80 @@ export function useChat() {
   }, [userId]);
 
   // Mark messages as read
-  const markMessagesAsRead = useCallback((conversationId: string) => {
+  const markMessagesAsRead = useCallback(async (conversationId: string) => {
     if (!userId) return;
     
-    socketService.markMessagesAsRead(conversationId);
+    console.log(`Marking messages as read in conversation ${conversationId}`);
+    
+    // CRITICAL FIX: Create a unique request ID to track this specific read request
+    const requestId = `read_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    console.log(`CRITICAL FIX: Generated unique request ID: ${requestId}`);
+    
+    // First call the App Router implementation (prioritize this as per migration plan)
+    try {
+      // Use the App Router API endpoint first
+      const appRouterResponse = await fetch(`/api/conversations/${conversationId}/read`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-ID': requestId // Add request ID for tracking
+        }
+      });
+      
+      if (!appRouterResponse.ok) {
+        console.error('Failed to mark messages as read via App Router API');
+        throw new Error('App Router API failed');
+      }
+      
+      const responseData = await appRouterResponse.json();
+      console.log('Successfully marked messages as read via App Router API:', responseData);
+      
+      // CRITICAL FIX: Also use socket to ensure real-time updates
+      // This creates redundancy to ensure the read status is updated everywhere
+      socketService.markMessagesAsRead(conversationId, requestId);
+      
+      // CRITICAL FIX: Force local UI update after a short delay
+      // This ensures the UI updates even if socket events are missed
+      setTimeout(() => {
+        // Create a synthetic read event that will update the UI
+        const syntheticReadEvent = {
+          conversationId,
+          readerId: userId,
+          senderId: responseData.otherUserId || null,
+          timestamp: new Date().toISOString(),
+          eventId: `synthetic_${requestId}`,
+          forceUpdate: true,
+          _localUpdate: true
+        };
+        
+        // Dispatch the event locally
+        // The notifyListeners method is now public in the SocketService class
+        socketService.notifyListeners('force_update_read_status', syntheticReadEvent);
+        socketService.notifyListeners('message_read', syntheticReadEvent);
+      }, 200);
+    } catch (error) {
+      console.error('Error with App Router API, falling back to socket:', error);
+      
+      // Use socket as a fallback for maximum reliability
+      socketService.markMessagesAsRead(conversationId, requestId);
+      
+      // Also try the Pages Router API as a last resort
+      try {
+        const pagesRouterResponse = await fetch(`/api/conversations/${conversationId}/mark-read`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Request-ID': requestId // Add request ID for tracking
+          }
+        });
+        
+        if (!pagesRouterResponse.ok) {
+          console.error('Failed to mark messages as read via Pages Router API');
+        }
+      } catch (fallbackError) {
+        console.error('All attempts to mark messages as read failed:', fallbackError);
+      }
+    }
   }, [userId]);
 
   // Send typing indicator

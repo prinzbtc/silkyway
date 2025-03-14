@@ -10,7 +10,12 @@ import { usePrice } from '@/hooks/usePrice';
 import { normalizeCurrency, formatPrice } from '@/lib/price';
 
 interface ConversationItemProps {
-  conversation: Conversation;
+  conversation: Conversation & {
+    // CRITICAL FIX: Add custom properties for UI state management
+    _forceHideBadge?: boolean;
+    _version?: number;
+    lastUpdateTimestamp?: number;
+  };
   isActive: boolean;
   onClick: () => void;
   currentUserId: string;
@@ -126,7 +131,7 @@ export default function ConversationItem({
         </div>
       </div>
       
-      {conversation.unreadCount && conversation.unreadCount > 0 && (
+      {(conversation.unreadCount ?? 0) > 0 && (
         <Badge 
           variant="default" 
           className="ml-2 bg-primary hover:bg-primary"

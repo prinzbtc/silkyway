@@ -9,6 +9,8 @@ export type SocketEvent =
   | 'disconnect'
   | 'new_message'
   | 'message_read'
+  | 'messages-read'
+  | 'force_update_read_status'  // Add the new special event
   | 'user_typing'
   | 'user_stopped_typing'
   | 'join_conversation'
@@ -110,8 +112,101 @@ export class SocketService {
     });
 
     this.socket.on('message_read', (data) => {
-      console.log('Message read notification:', data);
-      this.notifyListeners('message_read', data);
+      console.log('🔴 CRITICAL FIX: Message read notification received:', data);
+      // Enhanced logging for debugging
+      if (data.senderId) {
+        console.log(`🔴 CRITICAL FIX: Messages from user ${data.senderId} were read by ${data.readerId}`);
+      }
+      
+      // CRITICAL FIX: Ensure the data has all necessary fields
+      const enhancedData = {
+        ...data,
+        timestamp: data.timestamp || new Date().toISOString(),
+        eventId: data.eventId || `read_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        forceUpdate: true,
+        // Add a unique identifier to force UI updates
+        _uniqueId: Math.random().toString(36).substring(2, 15),
+        _clientTimestamp: Date.now()
+      };
+      
+      console.log('🔴 CRITICAL FIX: Enhanced data for message_read event:', enhancedData);
+      
+      // CRITICAL FIX: Force immediate UI update with multiple approaches
+      // 1. Use queueMicrotask for highest priority
+      queueMicrotask(() => {
+        console.log('🔴 CRITICAL FIX: Dispatching message_read event via queueMicrotask');
+        // Notify all listeners with the message_read event
+        this.notifyListeners('message_read', enhancedData);
+        
+        // CRITICAL FIX: Also dispatch the force_update_read_status event to ensure UI updates
+        this.notifyListeners('force_update_read_status', enhancedData);
+      });
+      
+      // 2. Also use setTimeout with 0ms delay as a fallback
+      setTimeout(() => {
+        console.log('🔴 CRITICAL FIX: Dispatching message_read event via setTimeout(0)');
+        this.notifyListeners('message_read', {
+          ...enhancedData,
+          _dispatchMethod: 'setTimeout_0',
+          _dispatchTime: Date.now()
+        });
+      }, 0);
+      
+      // 3. Also use a slightly delayed timeout to catch any race conditions
+      setTimeout(() => {
+        console.log('🔴 CRITICAL FIX: Dispatching message_read event via setTimeout(50)');
+        this.notifyListeners('message_read', {
+          ...enhancedData,
+          _dispatchMethod: 'setTimeout_50',
+          _dispatchTime: Date.now()
+        });
+        this.notifyListeners('force_update_read_status', {
+          ...enhancedData,
+          _dispatchMethod: 'setTimeout_50',
+          _dispatchTime: Date.now()
+        });
+      }, 50);
+    });
+    
+    this.socket.on('messages-read', (data) => {
+      console.log('Messages read notification (dash version):', data);
+      
+      // Convert to the underscore version for consistency
+      const normalizedData = {
+        ...data,
+        // Ensure we have all the required fields
+        conversationId: data.conversationId,
+        readerId: data.readerId || this.userId,
+        senderId: data.senderId,
+        timestamp: data.timestamp || new Date().toISOString()
+      };
+      
+      // Force immediate UI update with a high priority microtask
+      queueMicrotask(() => {
+        console.log('CRITICAL FIX: Dispatching message_read event from dash version to all listeners');
+        // Notify all listeners with the message_read event
+        this.notifyListeners('message_read', normalizedData);
+      });
+    });
+    
+    // CRITICAL FIX: Add listener for the special force_update_read_status event
+    this.socket.on('force_update_read_status', (data) => {
+      console.log('CRITICAL FIX: Received force_update_read_status event:', data);
+      
+      // This is a special event that forces UI updates for read status
+      // We need to handle it with the highest priority
+      queueMicrotask(() => {
+        console.log('CRITICAL FIX: Broadcasting force_update_read_status to all listeners');
+        
+        // First notify with the special event name
+        this.notifyListeners('force_update_read_status', data);
+        
+        // Also notify with the standard message_read event for components that only listen to that
+        this.notifyListeners('message_read', data);
+        
+        // And with the legacy format for maximum compatibility
+        this.notifyListeners('messages-read', data);
+      });
     });
 
     this.socket.on('user_typing', (data) => {
@@ -252,18 +347,123 @@ export class SocketService {
   /**
    * Mark messages as read
    * @param conversationId The ID of the conversation
+   * @param requestId Optional unique ID to track this specific read request
    */
-  public markMessagesAsRead(conversationId: string): void {
+  public markMessagesAsRead(conversationId: string, requestId?: string): void {
     if (!this.socket || !this.socket.connected) {
       console.warn('Cannot mark messages as read: Socket not connected');
       return;
     }
 
-    this.socket.emit('mark_messages_read', {
+    // CRITICAL FIX: Create a comprehensive payload with all necessary information
+    // This ensures the server has everything it needs to broadcast properly
+    const payload = {
       conversationId,
-      userId: this.userId,
-      timestamp: new Date().toISOString()
+      readerId: this.userId, // The user who is reading the messages
+      userId: this.userId,   // For backward compatibility
+      timestamp: new Date().toISOString(),
+      // Add a unique ID to ensure clients recognize this as a new event
+      eventId: requestId || `read_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    };
+    
+    console.log('CRITICAL FIX: Marking messages as read via socket:', payload);
+    
+    // CRITICAL FIX: First emit directly to the server to ensure other clients get notified
+    this.socket.emit('mark_messages_read', payload);
+    
+    // CRITICAL FIX: Also emit a direct REST API call to ensure the database is updated
+    // This ensures that even if the socket fails, the messages will still be marked as read
+    fetch(`/api/conversations/${conversationId}/read`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      // Add a cache-busting parameter to prevent caching
+      cache: 'no-store'
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Failed to mark messages as read: ${response.statusText}`);
+      }
+      return response.json();
+    })
+    .then(data => {
+      console.log('CRITICAL FIX: Successfully marked messages as read via API:', data);
+      
+      // CRITICAL FIX: After successful API call, force a UI update with the special event
+      // This ensures that all clients receive the update
+      if (data.otherUserId) {
+        // Create a comprehensive data object with all necessary information
+        const forceUpdateData = {
+          ...payload,
+          senderId: data.otherUserId,
+          otherUserId: data.otherUserId,
+          unreadCount: data.unreadCount || 0,
+          // Add forceUpdate flag to ensure UI updates
+          forceUpdate: true,
+          // Add a timestamp to ensure clients recognize this as a new event
+          timestamp: new Date().toISOString()
+        };
+        
+        console.log('CRITICAL FIX: Emitting force_update_read_status event:', forceUpdateData);
+        
+        // CRITICAL FIX: Emit multiple events to ensure all clients receive the update
+        if (this.socket && this.socket.connected) {
+          // Emit the special event to force UI updates
+          this.socket.emit('force_update_read_status', forceUpdateData);
+          
+          // Also emit the standard message_read event
+          this.socket.emit('message_read', forceUpdateData);
+          
+          // Also emit a global message event that all clients will receive
+          this.socket.emit('global-message', {
+            type: 'READ_STATUS_UPDATE',
+            data: forceUpdateData,
+            targetRooms: ['all'],
+            timestamp: Date.now()
+          });
+        }
+        
+        // CRITICAL FIX: Notify local listeners with multiple events
+        this.notifyListeners('force_update_read_status', forceUpdateData);
+        this.notifyListeners('message_read', forceUpdateData);
+        
+        // Also emit with legacy event name for backward compatibility
+        this.notifyListeners('messages-read', forceUpdateData);
+      }
+    })
+    .catch(error => {
+      console.error('CRITICAL FIX: Failed to mark messages as read via REST API:', error);
     });
+    
+    // CRITICAL FIX: Immediately update the UI for this client
+    // This provides instant feedback even before the server responds
+    queueMicrotask(() => {
+      console.log('CRITICAL FIX: Locally emitting message_read event for immediate UI update');
+      
+      // For the current user who is reading messages, we need to simulate a message_read event
+      // We need to make sure ALL messages in the conversation are marked as read
+      this.notifyListeners('message_read', {
+        ...payload,
+        // For the local UI update, we need to set senderId to null to ensure all messages
+        // are marked as read in the UI regardless of who sent them
+        senderId: null,
+        // Add forceUpdate flag to ensure UI updates
+        forceUpdate: true
+      });
+      
+      // Also emit the legacy format for maximum compatibility
+      this.notifyListeners('messages-read', payload);
+      
+      // CRITICAL FIX: Also emit the special force update event
+      this.notifyListeners('force_update_read_status', {
+        ...payload,
+        // This special event will force the UI to update regardless of sender/reader
+        forceUpdate: true
+      });
+    });
+    
+    console.log('CRITICAL FIX: Emitted mark_messages_read event with enhanced payload and immediate UI update');
   }
 
   /**
@@ -373,7 +573,7 @@ export class SocketService {
    * @param event The event that occurred
    * @param data The event data
    */
-  private notifyListeners(event: string, data: any): void {
+  public notifyListeners(event: string, data: any): void {
     const listeners = this.eventListeners.get(event);
     if (listeners) {
       listeners.forEach(callback => {
