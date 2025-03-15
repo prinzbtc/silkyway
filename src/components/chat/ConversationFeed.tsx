@@ -49,13 +49,26 @@ export default function ConversationFeed({ conversationId: propConversationId }:
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [pendingMessages, setPendingMessages] = useState<Record<string, Message>>({});
+  // Add state for tracking typing users in each conversation
+  const [localTypingUsers, setLocalTypingUsers] = useState<Record<string, string[]>>({});
   // CRITICAL FIX: Add a state variable to force re-renders when read status changes
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
+  // CRITICAL FIX: Add sets to track processed message IDs to prevent duplicates
+  const processedMessageIds = useRef<Set<string>>(new Set()).current;
+  const processedTempIds = useRef<Set<string>>(new Set()).current;
   const [counterparty, setCounterparty] = useState<{
     id: string;
     username: string | null;
     avatar: string | null;
   } | null>(null);
+
+  // Function to scroll to the latest message within the container
+  const scrollToLatestMessage = useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (!messageContainerRef.current || !messagesEndRef.current) return;
+    
+    const container = messageContainerRef.current;
+    container.scrollTop = container.scrollHeight;
+  }, []);
 
   // Fetch conversation data
   useEffect(() => {
@@ -64,7 +77,10 @@ export default function ConversationFeed({ conversationId: propConversationId }:
       
       try {
         setIsLoading(true);
-        const response = await fetch(`/api/conversations/${conversationId}`);
+        
+        // CRITICAL FIX: Add a cache-busting parameter to prevent stale data
+        const cacheBuster = Date.now();
+        const response = await fetch(`/api/conversations/${conversationId}?_=${cacheBuster}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch conversation');
@@ -72,7 +88,19 @@ export default function ConversationFeed({ conversationId: propConversationId }:
         
         const data = await response.json();
         setConversation(data.conversation);
-        setMessages(data.conversation.messages || []);
+        
+        // CRITICAL FIX: Ensure messages are strictly filtered by conversation ID
+        const filteredMessages = (data.conversation.messages || []).filter((message: Message) => {
+          // Ensure the message belongs to this conversation
+          if (message.conversationId !== conversationId) {
+            console.error(`CRITICAL ERROR: Found message with wrong conversation ID: ${message.id} belongs to ${message.conversationId} but is in ${conversationId}`);
+            return false;
+          }
+          return true;
+        });
+        
+        console.log(`Loaded ${filteredMessages.length} messages for conversation ${conversationId}`);
+        setMessages(filteredMessages);
         
         // Determine counterparty
         if (data.conversation.buyerId === session.user.id) {
@@ -93,6 +121,12 @@ export default function ConversationFeed({ conversationId: propConversationId }:
       }
     };
 
+    // Reset state when conversation changes
+    setMessages([]);
+    setPendingMessages({});
+    processedMessageIds.clear();
+    processedTempIds.clear();
+    
     fetchConversation();
   }, [conversationId, session?.user?.id, toast]);
 
@@ -136,43 +170,97 @@ export default function ConversationFeed({ conversationId: propConversationId }:
     }, 5000);
   }, []);
 
-  // Subscribe to new messages
+  // Subscribe to new messages - COMPLETELY REWRITTEN TO FIX DUPLICATION ISSUES
   useEffect(() => {
     if (!conversationId || !session?.user?.id) return;
 
+    // Track which message IDs we've already processed to prevent duplicates
+    const processedMessageIds = new Set<string>();
+    const processedTempIds = new Set<string>();
+
+    // CRITICAL FIX: Create a more robust message handler
     const handleNewMessage = async (data: any) => {
-      // Only process messages for this conversation
-      if (data.conversationId !== conversationId) return;
+      // Extract the message from the data
+      const messageData = data.message || data;
       
-      const newMessage = data.message || data;
+      // CRITICAL FIX: Ensure we have the correct conversation ID
+      const messageConversationId = messageData.conversationId || data.conversationId;
       
-      // Check if this is a pending message from this user
-      if (newMessage.senderId === session.user?.id && pendingMessages[newMessage.tempId]) {
+      // Log detailed information for debugging
+      console.log('Socket message received:', { 
+        messageConversationId, 
+        currentConversationId: conversationId,
+        messageId: messageData.id,
+        tempId: (messageData as any).tempId,
+        content: messageData.content?.substring(0, 20) + '...',
+      });
+      
+      // CRITICAL FIX: Strict conversation ID validation
+      // 1. Ensure the message has a conversation ID
+      if (!messageConversationId) {
+        console.log('Ignoring message without conversation ID');
+        return;
+      }
+      
+      // 2. Ensure the conversation ID is a string (not undefined, null, or other types)
+      if (typeof messageConversationId !== 'string') {
+        console.log(`Ignoring message with invalid conversation ID type: ${typeof messageConversationId}`);
+        return;
+      }
+      
+      // 3. Ensure the conversation ID exactly matches this conversation's ID
+      if (messageConversationId !== conversationId) {
+        console.log(`Ignoring message for different conversation: ${messageConversationId} vs ${conversationId}`);
+        return;
+      }
+      
+      // CRITICAL FIX: Check if we've already processed this message
+      if (messageData.id && processedMessageIds.has(messageData.id)) {
+        console.log(`Ignoring already processed message ID: ${messageData.id}`);
+        return;
+      }
+      
+      // CRITICAL FIX: Check if we've already processed this temp message
+      if ((messageData as any).tempId && processedTempIds.has((messageData as any).tempId)) {
+        console.log(`Ignoring already processed temp message: ${(messageData as any).tempId}`);
+        return;
+      }
+      
+      // CRITICAL FIX: Add this message to our processed sets
+      if (messageData.id) {
+        processedMessageIds.add(messageData.id);
+      }
+      if ((messageData as any).tempId) {
+        processedTempIds.add((messageData as any).tempId);
+      }
+      
+      // Handle pending messages from this user
+      if (messageData.senderId === session.user?.id && 
+          (messageData as any).tempId && 
+          pendingMessages[(messageData as any).tempId]) {
         // Replace the pending message with the confirmed one
         setPendingMessages(prev => {
           const updated = { ...prev };
-          delete updated[newMessage.tempId];
+          delete updated[(messageData as any).tempId];
           return updated;
         });
       }
       
-      // If the message is from another user and doesn't have complete sender info
-      // (like avatar), fetch the complete conversation to get updated user info
-      if (newMessage.senderId !== session.user?.id && 
-          (!newMessage.sender?.avatar || !newMessage.sender?.username)) {
+      // If the message is from another user and doesn't have complete sender info,
+      // fetch the complete conversation to get updated user info
+      if (messageData.senderId !== session.user?.id && 
+          (!messageData.sender?.avatar || !messageData.sender?.username)) {
         try {
-          // Fetch the latest conversation data to get complete user info
           const response = await fetch(`/api/conversations/${conversationId}`);
           if (response.ok) {
             const data = await response.json();
-            // Update conversation with complete data
             setConversation(data.conversation);
             
             // Find the message in the updated conversation data
-            const updatedMessage = data.conversation.messages?.find((m: any) => m.id === newMessage.id);
+            const updatedMessage = data.conversation.messages?.find((m: any) => m.id === messageData.id);
             if (updatedMessage) {
               // Use the updated message with complete sender info
-              newMessage.sender = updatedMessage.sender;
+              messageData.sender = updatedMessage.sender;
             }
           }
         } catch (error) {
@@ -180,13 +268,43 @@ export default function ConversationFeed({ conversationId: propConversationId }:
         }
       }
       
-      // Add the message if it's not already in the list
+      // CRITICAL FIX: Extremely strict message filtering and duplicate detection
       setMessages(prev => {
-        // Check if message already exists to prevent duplicates
-        const exists = prev.some(m => m.id === newMessage.id);
-        if (exists) return prev;
+        // CRITICAL FIX: First, ensure this message belongs to the current conversation
+        if (messageData.conversationId !== conversationId) {
+          console.error(`CRITICAL ERROR: Attempted to add message from wrong conversation: ${messageData.id} belongs to ${messageData.conversationId} but current is ${conversationId}`);
+          return prev; // Don't add this message
+        }
         
-        const updatedMessages = [...prev, newMessage];
+        // Check if this message already exists in our state
+        const exists = prev.some(m => 
+          // Check by ID if available
+          (messageData.id && m.id === messageData.id) ||
+          // Check by tempId for pending messages
+          ((messageData as any).tempId && (m as any).tempId === (messageData as any).tempId) ||
+          // Check by content, sender, and approximate timestamp
+          (m.content === messageData.content && 
+           m.senderId === messageData.senderId && 
+           // Compare timestamps if available, allowing for slight differences
+           (typeof m.createdAt === 'string' && typeof messageData.createdAt === 'string' &&
+            Math.abs(new Date(m.createdAt).getTime() - new Date(messageData.createdAt).getTime()) < 5000))
+        );
+        
+        if (exists) {
+          console.log(`Ignoring duplicate message in conversation ${conversationId}:`, messageData);
+          return prev;
+        }
+        
+        // CRITICAL FIX: Add conversation ID to the message if it's missing
+        const messageWithConversationId = {
+          ...messageData,
+          conversationId: conversationId, // Ensure the message has the correct conversation ID
+          _addedAt: Date.now(), // Add a timestamp for debugging
+          _componentId: `feed_${conversationId.substring(0, 8)}` // Add component identifier for debugging
+        };
+        
+        console.log(`Adding new message to conversation ${conversationId}:`, messageWithConversationId);
+        const updatedMessages = [...prev, messageWithConversationId];
         
         // Auto-scroll to the latest message if the user isn't manually scrolling
         if (!isUserScrolling) {
@@ -199,7 +317,7 @@ export default function ConversationFeed({ conversationId: propConversationId }:
       });
       
       // Mark as read if the message is from the other user
-      if (newMessage.senderId !== session.user?.id) {
+      if (messageData.senderId !== session.user?.id) {
         const markAsRead = async () => {
           await markMessagesAsRead(conversationId);
           console.log('Marked messages as read after receiving new message');
@@ -208,168 +326,258 @@ export default function ConversationFeed({ conversationId: propConversationId }:
       }
     };
 
-    // Handle message read events
+    // CRITICAL FIX: Enhanced message read handler with sender/receiver awareness
     const handleMessageRead = (data: any) => {
       // Only process events for the current conversation
       if (data.conversationId !== conversationId) {
+        console.log(`Ignoring read event for different conversation: ${data.conversationId} vs ${conversationId}`);
         return;
       }
       
-      // Directly modify the DOM to force the read status to update
-      // This approach bypasses React's state management for immediate UI updates
-      try {
-        const sentStatusElements = document.querySelectorAll('.message-status');
-        
-        sentStatusElements.forEach(element => {
-          if (element.textContent === 'Sent') {
-            element.textContent = 'Read';
-            element.classList.add('text-blue-500');
-          }
-        });
-      } catch (error) {
-        console.error('Error updating DOM directly:', error);
-      }
+      console.log('Processing message read event for conversation:', conversationId, data);
       
-      // Update ALL messages in this conversation
+      // Update messages based on who sent and who read them
       setMessages(prevMessages => {
-        // Create a new array to trigger React re-render
-        const updatedMessages = prevMessages.map(message => {
-          // Mark ALL messages as read regardless of sender to ensure the UI updates
-          return { 
+        // If senderId is null, mark all messages as read (local UI update)
+        if (!data.senderId) {
+          console.log('Marking ALL messages as read (local update)');
+          return prevMessages.map(message => ({
             ...message, 
             read: true,
-            // Add unique identifiers to force React to see this as a new object
             _readTimestamp: Date.now(),
-            _version: Math.random().toString(36).substring(2, 9),
-            _uniqueId: `${message.id}_${Date.now()}`,
-            _forceUpdate: true
-          };
-        });
+            _readSource: 'local_update'
+          }));
+        }
         
-        // Force a component re-render
-        setLastUpdate(Date.now());
+        // If we have a specific sender ID, only mark messages from that sender as read
+        // This handles the case where the other user has read our messages
+        if (data.senderId === session?.user?.id) {
+          console.log(`Marking messages FROM current user (${session?.user?.id}) as read`);
+          return prevMessages.map(message => {
+            // Only update messages sent by the current user
+            if (message.senderId === session?.user?.id) {
+              return {
+                ...message,
+                read: true,
+                _readTimestamp: Date.now(),
+                _readSource: 'sender_specific'
+              };
+            }
+            return message;
+          });
+        }
         
-        return updatedMessages;
+        // Handle the case where we're marking messages from the other user as read
+        if (data.readerId === session?.user?.id) {
+          console.log(`Current user (${session?.user?.id}) has read messages from ${data.senderId}`);
+          return prevMessages.map(message => {
+            // Only update messages received from the other user
+            if (message.senderId !== session?.user?.id) {
+              return {
+                ...message,
+                read: true,
+                _readTimestamp: Date.now(),
+                _readSource: 'receiver_update'
+              };
+            }
+            return message;
+          });
+        }
+        
+        // Fallback: if we can't determine specifics, mark all messages as read
+        console.log('Fallback: Marking all messages as read');
+        return prevMessages.map(message => ({
+          ...message, 
+          read: true,
+          _readTimestamp: Date.now(),
+          _readSource: 'fallback'
+        }));
       });
       
-      // Force multiple re-renders at different intervals to ensure UI updates
-      setTimeout(() => {
-        setLastUpdate(Date.now());
-      }, 50);
-      
-      setTimeout(() => {
-        setLastUpdate(Date.now() + 1);
-      }, 200);
-      
-      setTimeout(() => {
-        setLastUpdate(Date.now() + 2);
-      }, 500);
-      
-      // Force a complete refresh of the messages state
-      setTimeout(() => {
-        // Create an entirely new array with all messages marked as read
-        setMessages(prevMessages => 
-          prevMessages.map(msg => ({
-            ...msg,
-            read: true,
-            _forceUpdate: true,
-            _timestamp: Date.now()
-          }))
-        );
-      }, 300);
+      // Force a component re-render
+      setLastUpdate(Date.now());
     };
     
-    const unsubscribeNewMessage = subscribe('new_message', handleNewMessage);
-    // Listen for the message_read event (the server uses underscore version)
-    const unsubscribeMessageRead = subscribe('message_read', handleMessageRead);
+    // This section was removed to fix duplicate declaration
     
-    // Listen for the special force_update_read_status event
-    // This event is specifically emitted to force UI updates for read status
-    const unsubscribeForceUpdate = subscribe('force_update_read_status', (data: any) => {
-      // Only process events for the current conversation
+    // CRITICAL FIX: Create dedicated conversation-specific event handlers with multiple layers of protection
+    // Each conversation instance gets its own unique handler functions to prevent cross-contamination
+    const conversationSpecificMessageHandler = (data: any) => {
+      // Create a unique handler ID for debugging
+      const handlerId = `msg_handler_${conversationId.substring(0, 8)}_${Date.now()}`;
+      
+      console.log(`[${handlerId}] Processing message event for conversation ${conversationId}`, {
+        dataConversationId: data.conversationId || (data.message && data.message.conversationId),
+        currentConversationId: conversationId,
+        messageContent: data.content || (data.message && data.message.content)?.substring(0, 20) + '...',
+      });
+      
+      // PROTECTION LAYER 1: Validate the event data structure
+      if (!data) {
+        console.log(`[${handlerId}] Ignoring null/undefined message data`);
+        return;
+      }
+      
+      // Extract the message and conversation ID with multiple fallbacks
+      const messageData = data.message || data;
+      const messageConversationId = messageData.conversationId || data.conversationId;
+      
+      // PROTECTION LAYER 2: Ensure we have a valid conversation ID
+      if (!messageConversationId) {
+        console.log(`[${handlerId}] Ignoring message without conversation ID`);
+        return;
+      }
+      
+      // PROTECTION LAYER 3: Type checking for conversation ID
+      if (typeof messageConversationId !== 'string') {
+        console.log(`[${handlerId}] Ignoring message with invalid conversation ID type: ${typeof messageConversationId}`);
+        return;
+      }
+      
+      // PROTECTION LAYER 4: Strict string equality check for conversation ID
+      if (messageConversationId !== conversationId) {
+        console.log(`[${handlerId}] Ignoring message for different conversation: ${messageConversationId} vs ${conversationId}`);
+        return;
+      }
+      
+      // PROTECTION LAYER 5: Ensure the message has content or is a system message
+      if (!messageData.content && !messageData.type) {
+        console.log(`[${handlerId}] Ignoring message without content or type`);
+        return;
+      }
+      
+      console.log(`[${handlerId}] Message passed all validation checks, proceeding with handling`);
+      
+      // Only now proceed with normal message handling
+      handleNewMessage(data);
+    };
+    
+    const conversationSpecificReadHandler = (data: any) => {
+      // Create a unique handler ID for debugging
+      const handlerId = `read_handler_${conversationId.substring(0, 8)}_${Date.now()}`;
+      
+      console.log(`[${handlerId}] Processing read event for conversation ${conversationId}`);
+      
+      // PROTECTION LAYER 1: Validate the event data structure
+      if (!data || typeof data !== 'object') {
+        console.log(`[${handlerId}] Ignoring invalid read event data`);
+        return;
+      }
+      
+      // PROTECTION LAYER 2: Ensure we have a valid conversation ID
+      if (!data.conversationId) {
+        console.log(`[${handlerId}] Ignoring read event without conversation ID`);
+        return;
+      }
+      
+      // PROTECTION LAYER 3: Type checking for conversation ID
+      if (typeof data.conversationId !== 'string') {
+        console.log(`[${handlerId}] Ignoring read event with invalid conversation ID type`);
+        return;
+      }
+      
+      // PROTECTION LAYER 4: Strict string equality check for conversation ID
+      if (data.conversationId !== conversationId) {
+        console.log(`[${handlerId}] Ignoring read event for different conversation: ${data.conversationId} vs ${conversationId}`);
+        return;
+      }
+      
+      console.log(`[${handlerId}] Read event passed all validation checks, proceeding with handling`);
+      
+      // Only now proceed with normal read handling
+      handleMessageRead(data);
+    };
+    
+    // CRITICAL FIX: Subscribe with conversation-specific filtering at the socket service level
+    // This ensures messages are filtered at the source before even reaching our handlers
+    // CRITICAL FIX: Subscribe to all relevant events with conversation-specific handlers
+    const unsubscribeNewMessage = subscribe('new_message', conversationSpecificMessageHandler, conversationId);
+    
+    // Subscribe to multiple read status events for maximum reliability
+    const unsubscribeMessageRead = subscribe('message_read', handleMessageRead, conversationId);
+    const unsubscribeForceUpdateReadStatus = subscribe('force_update_read_status', handleMessageRead, conversationId);
+    const unsubscribeMessagesRead = subscribe('messages-read', handleMessageRead, conversationId);
+    
+    // Define handlers for typing indicators
+    const handleUserTyping = (data: any) => {
+      if (data.conversationId === conversationId && data.userId !== session?.user?.id) {
+        // Update typing users state
+        setLocalTypingUsers((prev: Record<string, string[]>) => ({
+          ...prev,
+          [conversationId]: [...(prev[conversationId] || []), data.userId]
+        }));
+      }
+    };
+    
+    const handleUserStoppedTyping = (data: any) => {
+      if (data.conversationId === conversationId) {
+        // Remove user from typing users
+        setLocalTypingUsers((prev: Record<string, string[]>) => ({
+          ...prev,
+          [conversationId]: (prev[conversationId] || []).filter((id: string) => id !== data.userId)
+        }));
+      }
+    };
+    
+    // CRITICAL FIX: Enhanced handler for read status changes with direct DOM manipulation
+    const handleReadStatusChanged = (data: any) => {
       if (data.conversationId !== conversationId) {
         return;
       }
       
-      // Directly modify the DOM to force the read status to update
-      try {
-        const sentStatusElements = document.querySelectorAll('.message-status');
-        
-        sentStatusElements.forEach(element => {
-          if (element.textContent === 'Sent') {
-            element.textContent = 'Read';
-            element.classList.add('text-blue-500');
-          }
-        });
-      } catch (error) {
-        console.error('Error updating DOM directly:', error);
-      }
+      console.log('Read status changed event received:', data);
       
-      // CRITICAL FIX: Force update ALL messages to be marked as read
-      // regardless of their current read status to ensure UI updates
-      setMessages(prevMessages => {
-        // Create a new array with updated messages to trigger React re-render
-        const updatedMessages = prevMessages.map(message => {
-          // CRITICAL FIX: ALWAYS update ALL messages regardless of sender
-          // to force a UI update
-          console.log(`CRITICAL FIX: Force marking message ${message.id} as read`);
-          // Create a completely new message object to ensure React detects the change
-          return { 
-            ...message, 
-            read: true, 
-            // Add multiple unique identifiers to force React re-render
-            _forceUpdateTimestamp: Date.now(),
-            _version: Math.random(),
-            _uniqueId: `${message.id}_${Date.now()}`,
-            _forceUpdate: true
-          };
-        });
-        
-        // Force a component re-render
-        setLastUpdate(Date.now());
-        
-        // Schedule multiple re-renders
-        setTimeout(() => setLastUpdate(Date.now() + 1), 50);
-        setTimeout(() => setLastUpdate(Date.now() + 2), 150);
-        setTimeout(() => setLastUpdate(Date.now() + 3), 300);
-        
-        return updatedMessages;
-      });
+      // 1. Use the same handler as message_read for consistency
+      handleMessageRead(data);
       
-      // Force another update after a delay
+      // 2. Direct DOM manipulation for immediate feedback
       setTimeout(() => {
-        // Create an entirely new array with all messages marked as read
-        setMessages(prevMessages => 
-          prevMessages.map(msg => ({
-            ...msg,
-            read: true,
-            _forceUpdate: true,
-            _timestamp: Date.now()
-          }))
-        );
-        setLastUpdate(Date.now() + 10);
-      }, 200);
-    // Also force a full component re-render after a short delay
-    // This ensures the UI updates even if React doesn't detect the state changes
-    setTimeout(() => {
+        try {
+          document.querySelectorAll('.message-status[data-conversation-id="' + conversationId + '"]').forEach(el => {
+            if (el.textContent === 'Sent') {
+              el.textContent = 'Read';
+              el.classList.add('text-blue-500');
+              el.classList.add('read-status-updated-event');
+            }
+          });
+        } catch (e) {}
+      }, 50);
+      
+      // 3. Force a component re-render to update read status indicators
       setLastUpdate(Date.now());
-    }, 100);
+    };
+    
+    // Subscribe to read status and typing events
+    const unsubscribeReadStatusChanged = subscribe('read_status_changed', handleReadStatusChanged, conversationId);
+    
+    // Also subscribe to global message events that might contain read status updates
+    const unsubscribeGlobalMessage = subscribe('global-message', (data: any) => {
+      if (data.type === 'READ_STATUS_UPDATE' && data.data?.conversationId === conversationId) {
+        handleMessageRead(data.data);
+      }
     });
     
+    // Subscribe to typing indicators
+    const unsubscribeUserTyping = subscribe('user_typing', handleUserTyping, conversationId);
+    const unsubscribeUserStoppedTyping = subscribe('user_stopped_typing', handleUserStoppedTyping, conversationId);
+    
+    console.log(`Subscribed to all events with conversation-specific filtering for ${conversationId}`);
+    
+    // Clean up on unmount or when conversation changes
     return () => {
       unsubscribeNewMessage();
       unsubscribeMessageRead();
-      unsubscribeForceUpdate();
+      unsubscribeForceUpdateReadStatus();
+      unsubscribeMessagesRead();
+      unsubscribeReadStatusChanged();
+      unsubscribeGlobalMessage();
+      unsubscribeUserTyping();
+      unsubscribeUserStoppedTyping();
+      // Clear our processed message sets
+      processedMessageIds.clear();
+      processedTempIds.clear();
     };
-  }, [conversationId, session?.user?.id, pendingMessages, subscribe, markMessagesAsRead]);
-
-  // Function to scroll to the latest message within the container
-  const scrollToLatestMessage = useCallback((behavior: ScrollBehavior = 'auto') => {
-    if (!messageContainerRef.current || !messagesEndRef.current) return;
-    
-    const container = messageContainerRef.current;
-    container.scrollTop = container.scrollHeight;
-  }, []);
+  }, [conversationId, session?.user?.id, pendingMessages, subscribe, markMessagesAsRead, isUserScrolling, scrollToLatestMessage]);
   
   // Auto-scroll to the latest message when conversation is loaded
   useEffect(() => {
@@ -379,21 +587,55 @@ export default function ConversationFeed({ conversationId: propConversationId }:
         scrollToLatestMessage();
       }, 100);
       
-      // When lastUpdate changes, ensure read status is updated in the DOM
+      // CRITICAL FIX: When lastUpdate changes, ensure read status is updated in the DOM
       if (lastUpdate) {
-        // Directly modify the DOM to ensure read status is updated
+        // Use multiple approaches to ensure read status updates are visible
+        // 1. Direct DOM manipulation for immediate visual feedback
         try {
-          const sentStatusElements = document.querySelectorAll('.message-status');
+          // Target all message status elements with specific class for easier selection
+          const sentStatusElements = document.querySelectorAll('.message-status[data-conversation-id="' + conversationId + '"]');
           
           sentStatusElements.forEach(element => {
             if (element.textContent === 'Sent') {
+              // Update the text content
               element.textContent = 'Read';
+              // Add visual styling
               element.classList.add('text-blue-500');
+              element.classList.add('read-status-updated');
+              // Add data attribute for debugging
+              element.setAttribute('data-updated-at', Date.now().toString());
             }
           });
+          
+          console.log(`Updated ${sentStatusElements.length} message status elements via DOM for conversation ${conversationId}`);
         } catch (error) {
           console.error('Error updating DOM directly:', error);
         }
+        
+        // 2. Schedule multiple staged updates at different intervals for maximum reliability
+        setTimeout(() => {
+          try {
+            document.querySelectorAll('.message-status[data-conversation-id="' + conversationId + '"]').forEach(el => {
+              if (el.textContent === 'Sent') {
+                el.textContent = 'Read';
+                el.classList.add('text-blue-500');
+                el.classList.add('read-status-updated-50ms');
+              }
+            });
+          } catch (e) {}
+        }, 50);
+        
+        setTimeout(() => {
+          try {
+            document.querySelectorAll('.message-status[data-conversation-id="' + conversationId + '"]').forEach(el => {
+              if (el.textContent === 'Sent') {
+                el.textContent = 'Read';
+                el.classList.add('text-blue-500');
+                el.classList.add('read-status-updated-200ms');
+              }
+            });
+          } catch (e) {}
+        }, 200);
       }
     }
   }, [messages.length, isLoading, scrollToLatestMessage, lastUpdate]); // CRITICAL FIX: Add lastUpdate to dependencies
@@ -1226,10 +1468,14 @@ export default function ConversationFeed({ conversationId: propConversationId }:
 
   // Get typing indicator text
   const getTypingIndicatorText = () => {
-    const typingUserIds = typingUsers[conversationId] || [];
+    // Combine both typing user sources for maximum reliability
+    const typingUserIds = [...(typingUsers[conversationId] || []), ...(localTypingUsers[conversationId] || [])];
     const filteredIds = typingUserIds.filter(id => id !== session?.user?.id);
     
-    if (filteredIds.length === 0) return null;
+    // Remove duplicates (using Array.from instead of spread operator to fix TypeScript error)
+    const uniqueIds = Array.from(new Set(filteredIds));
+    
+    if (uniqueIds.length === 0) return null;
     
     // For simplicity, just show "typing..." instead of usernames
     return <div className="text-xs text-gray-500 italic mb-2">typing...</div>;
@@ -1355,11 +1601,18 @@ export default function ConversationFeed({ conversationId: propConversationId }:
               >
                 {format(new Date(message.createdAt), 'h:mm a')}
                 {message.senderId === session?.user?.id && (
-                  <span className="ml-1 message-status">
+                  <span 
+                    className="ml-1 message-status" 
+                    data-message-id={message.id} 
+                    data-conversation-id={conversationId}
+                    data-sender-id={message.senderId}
+                    data-read-status={message.read ? 'read' : 'sent'}
+                    data-timestamp={Date.now()}
+                  >
                     {message.read ? (
-                      <span className="text-blue-500">Read</span>
+                      <span className="text-blue-500 read-status">Read</span>
                     ) : (
-                      'Sent'
+                      <span className="sent-status">Sent</span>
                     )}
                   </span>
                 )}

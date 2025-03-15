@@ -313,18 +313,18 @@ export function getSocketIOServer(): SocketIOServer | null {
   if (!socketIOServer) {
     console.warn('Socket.IO server requested but not initialized yet');
     
-    // Try to initialize from the global Next.js server if available
+    // In Next.js App Router, we can't reliably access the HTTP server in API routes
+    // Instead, we'll just return null and let the application handle this case
     try {
-      // This is a workaround to access the global Next.js server
-      // It may not work in all environments, but it's worth trying
-      const { default: http } = require('http');
-      const server = http.getServer();
-      if (server) {
-        console.log('Found global HTTP server, initializing Socket.IO');
-        return initSocketIOServer(server);
-      }
+      // For development environments, we might be able to access the server via a different approach
+      // but this is not reliable in production or when using App Router
+      console.log('Socket.IO server not initialized - this is expected in API routes');
+      
+      // Return null instead of trying to access a non-existent method
+      return null;
     } catch (error) {
-      console.error('Failed to initialize Socket.IO from global server:', error);
+      console.error('Error in Socket.IO initialization:', error);
+      return null;
     }
   }
   return socketIOServer;

@@ -14,6 +14,9 @@ export async function POST(
   { params }: { params: { conversationId: string } }
 ) {
   try {
+    // In Next.js App Router, params need to be properly awaited
+    const conversationId = params.conversationId;
+    
     const session = await getSession();
     if (!session?.user) {
       return new NextResponse('Unauthorized', { status: 401 });
@@ -21,7 +24,7 @@ export async function POST(
 
     // Get conversation and verify participant
     const conversation = await prisma.conversation.findUnique({
-      where: { id: params.conversationId },
+      where: { id: conversationId },
       select: {
         id: true,
         buyerId: true,
@@ -41,7 +44,7 @@ export async function POST(
     // Mark all messages sent to the current user as read
     const result = await prisma.message.updateMany({
       where: {
-        conversationId: params.conversationId,
+        conversationId: conversationId,
         receiverId: session.user.id,
         read: false,
       },
@@ -58,7 +61,7 @@ export async function POST(
     // Get the unread count for this conversation
     const unreadCount = await prisma.message.count({
       where: {
-        conversationId: params.conversationId,
+        conversationId: conversationId,
         receiverId: session.user.id,
         read: false,
       },
@@ -69,45 +72,32 @@ export async function POST(
       const io = getSocketIOServer();
       
       if (io) {
-        // CRITICAL FIX: Create a comprehensive payload with ALL necessary information
+        // Create a comprehensive payload with necessary information
         const readData = {
-          conversationId: params.conversationId,
+          conversationId: conversationId,
           readerId: session.user.id,
-          senderId: otherUserId, // This is important - identifies whose messages were read
+          senderId: otherUserId,
           timestamp: new Date().toISOString(),
-          // Include additional fields for maximum compatibility
-          userId: session.user.id, // For backward compatibility
-          otherUserId: otherUserId, // Explicitly identify the other user
-          unreadCount: 0, // After marking as read, the count should be 0
-          // Add a unique ID to ensure clients recognize this as a new event
+          userId: session.user.id, 
+          otherUserId: otherUserId, 
+          unreadCount: 0,
           eventId: `read_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          // Add forceUpdate flag to ensure UI updates
           forceUpdate: true,
-          // Add additional fields to force UI updates
           _serverTimestamp: Date.now(),
           _uniqueId: Math.random().toString(36).substring(2, 15)
         };
         
-        console.log(`🔴 CRITICAL FIX: Emitting message_read event for conversation ${params.conversationId}`);
-        console.log(`🔴 CRITICAL FIX: Reader: ${session.user.id}, Sender: ${otherUserId}`);
+        console.log(`Emitting message_read event for conversation ${conversationId}`);
+        console.log(`Reader: ${session.user.id}, Sender: ${otherUserId}`);
         
-        // CRITICAL FIX: Force a global broadcast to ALL clients
-        // This is the most reliable way to ensure all clients receive the event
+        // Emit events to notify clients
         io.emit('message_read', readData);
-        
-        // Also target the specific user who sent the messages to ensure they get the update
         io.to(`user:${otherUserId}`).emit('message_read', readData);
-        
-        // Also emit to the conversation room for any clients listening there
-        io.to(`conversation:${params.conversationId}`).emit('message_read', readData);
-        
-        // For backward compatibility, also emit with the hyphenated event name
+        io.to(`conversation:${conversationId}`).emit('message_read', readData);
         io.emit('messages-read', readData);
-        
-        // CRITICAL FIX: Also emit a special event that will force UI updates
         io.emit('force_update_read_status', readData);
         
-        // CRITICAL FIX: Also emit a global message event that all clients will receive
+        // Also emit a global message event
         io.emit('global-message', {
           type: 'READ_STATUS_UPDATE',
           data: readData,
@@ -115,66 +105,47 @@ export async function POST(
           timestamp: Date.now()
         });
         
-        // CRITICAL FIX: Send individual socket events to ensure delivery
-        // Find all sockets and send them the event directly
-        const sockets = await io.fetchSockets();
-        console.log(`🔴 CRITICAL FIX: Found ${sockets.length} connected sockets`);
-        
-        for (const clientSocket of sockets) {
-          // Get the socket's user ID from the handshake data
-          const socketUserId = clientSocket.handshake.query.userId as string;
-          console.log(`🔴 CRITICAL FIX: Socket ${clientSocket.id} belongs to user ${socketUserId}`);
+        try {
+          // Try to send individual socket events
+          const sockets = await io.fetchSockets();
+          console.log(`Found ${sockets.length} connected sockets`);
           
-          // Send the events to this socket
-          clientSocket.emit('force_update_read_status', readData);
-          clientSocket.emit('message_read', readData);
-          
-          // CRITICAL FIX: If this socket belongs to the sender, send additional events
-          // to ensure they receive the update
-          if (socketUserId === otherUserId) {
-            console.log(`🔴 CRITICAL FIX: Sending targeted read status update to sender socket ${clientSocket.id}`);
-            
-            // CRITICAL FIX: Send multiple events with different variations to ensure the client updates
-            // Send first targeted event immediately
-            const targetedData1 = {
-              ...readData,
-              _targetedUpdate: true,
-              _timestamp: Date.now(),
-              _uniqueId: Math.random().toString(36).substring(2, 15)
-            };
-            console.log(`🔴 CRITICAL FIX: Sending immediate targeted update:`, targetedData1);
-            clientSocket.emit('force_update_read_status', targetedData1);
-            clientSocket.emit('message_read', targetedData1);
-            
-            // Send second targeted event after a short delay
-            setTimeout(() => {
-              const targetedData2 = {
-                ...readData,
-                _delayedUpdate: true,
-                _timestamp: Date.now() + 1,
-                _uniqueId: Math.random().toString(36).substring(2, 15)
-              };
-              console.log(`🔴 CRITICAL FIX: Sending delayed targeted update (50ms):`, targetedData2);
-              clientSocket.emit('force_update_read_status', targetedData2);
-              clientSocket.emit('message_read', targetedData2);
-            }, 50);
-            
-            // Send third targeted event after a longer delay
-            setTimeout(() => {
-              const targetedData3 = {
-                ...readData,
-                _delayedUpdate: true,
-                _timestamp: Date.now() + 2,
-                _uniqueId: Math.random().toString(36).substring(2, 15)
-              };
-              console.log(`🔴 CRITICAL FIX: Sending delayed targeted update (200ms):`, targetedData3);
-              clientSocket.emit('force_update_read_status', targetedData3);
-              clientSocket.emit('message_read', targetedData3);
-            }, 200);
+          for (const clientSocket of sockets) {
+            try {
+              // Get the socket's user ID from the handshake data
+              const socketUserId = clientSocket.handshake.query.userId as string;
+              console.log(`Socket ${clientSocket.id} belongs to user ${socketUserId}`);
+              
+              // Send the events to this socket
+              clientSocket.emit('force_update_read_status', readData);
+              clientSocket.emit('message_read', readData);
+              
+              // If this socket belongs to the sender, send additional events
+              if (socketUserId === otherUserId) {
+                console.log(`Sending targeted read status update to sender socket ${clientSocket.id}`);
+                
+                // Send targeted event
+                const targetedData = {
+                  ...readData,
+                  _targetedUpdate: true,
+                  _timestamp: Date.now(),
+                  _uniqueId: Math.random().toString(36).substring(2, 15)
+                };
+                clientSocket.emit('force_update_read_status', targetedData);
+                clientSocket.emit('message_read', targetedData);
+              }
+            } catch (socketError) {
+              console.error('Error processing socket:', socketError);
+              // Continue with other sockets
+            }
           }
+        } catch (socketsError) {
+          console.error('Error fetching sockets:', socketsError);
+          // Continue without individual socket updates
         }
-        
-        console.log('🔴 CRITICAL FIX: Broadcast complete - message read events sent to all clients');
+      } else {
+        console.log('Socket.IO server not available, skipping real-time updates');
+        // Continue without real-time updates - the database was still updated
       }
     } catch (socketError) {
       console.error('Socket.IO error:', socketError);
@@ -184,8 +155,6 @@ export async function POST(
     return NextResponse.json({ 
       success: true, 
       messagesMarkedAsRead: result.count,
-      // CRITICAL FIX: Include the otherUserId in the response
-      // This allows the socket service to use it for broadcasting events
       otherUserId: otherUserId
     });
   } catch (error) {

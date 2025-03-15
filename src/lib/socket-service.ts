@@ -10,7 +10,9 @@ export type SocketEvent =
   | 'new_message'
   | 'message_read'
   | 'messages-read'
-  | 'force_update_read_status'  // Add the new special event
+  | 'force_update_read_status'  // Special event to force UI updates
+  | 'read_status_changed'       // Event when read status changes
+  | 'global-message'            // Global message event for cross-conversation updates
   | 'user_typing'
   | 'user_stopped_typing'
   | 'join_conversation'
@@ -107,8 +109,60 @@ export class SocketService {
     });
 
     this.socket.on('new_message', (data) => {
-      console.log('Received new message:', data);
-      this.notifyListeners('new_message', data);
+      // Extract the conversation ID from the message data with multiple fallbacks
+      const conversationId = data.conversationId || 
+                            (data.message && data.message.conversationId) || 
+                            (typeof data === 'object' && 'conversationId' in data ? data.conversationId : null);
+      
+      // CRITICAL FIX: Enhanced logging for debugging
+      console.log('🔴 CRITICAL FIX: Received new message event with data:', {
+        conversationId,
+        messageId: data.id || (data.message && data.message.id),
+        tempId: data.tempId || (data.message && data.message.tempId),
+        content: (data.content || (data.message && data.message.content))?.substring(0, 20) + '...',
+        activeConversations: Array.from(this.activeConversations),
+        dataType: typeof data,
+        hasMessage: !!data.message,
+        receivedAt: new Date().toISOString()
+      });
+      
+      // CRITICAL FIX: Strict validation of conversation ID
+      if (!conversationId) {
+        console.error('🔴 CRITICAL FIX: Ignoring message without conversation ID');
+        return;
+      }
+      
+      if (typeof conversationId !== 'string') {
+        console.error(`🔴 CRITICAL FIX: Ignoring message with invalid conversation ID type: ${typeof conversationId}`);
+        return;
+      }
+      
+      // CRITICAL FIX: Only notify listeners that have joined this specific conversation
+      // This prevents messages from appearing in the wrong conversations
+      if (this.activeConversations.has(conversationId)) {
+        console.log(`🔴 CRITICAL FIX: Dispatching message to listeners for conversation: ${conversationId}`);
+        
+        // CRITICAL FIX: Create a completely new object to avoid reference issues
+        // and ensure the conversation ID is explicitly set
+        const message = data.message || data;
+        const enhancedData = {
+          message: {
+            ...message,
+            conversationId: conversationId, // Explicitly set the conversation ID
+            _socketProcessedAt: Date.now(),
+          },
+          conversationId: conversationId, // Also set at the top level
+          _receivedAt: Date.now(),
+          _socketId: this.socket?.id,
+          _eventType: 'new_message'
+        };
+        
+        // CRITICAL FIX: Use a dedicated method for conversation-specific events
+        this.notifyConversationListeners('new_message', enhancedData, conversationId);
+      } else {
+        console.log(`🔴 CRITICAL FIX: Ignoring message for conversation ${conversationId} - not in active conversations list:`, 
+          Array.from(this.activeConversations));
+      }
     });
 
     this.socket.on('message_read', (data) => {
@@ -280,7 +334,10 @@ export class SocketService {
       userId: this.userId
     });
     
+    // CRITICAL FIX: Track which conversations this client has joined
+    // This is used to filter incoming messages to only those for conversations we care about
     this.activeConversations.add(conversationId);
+    console.log(`Active conversations after joining: ${Array.from(this.activeConversations).join(', ')}`);
   }
 
   /**
@@ -407,29 +464,85 @@ export class SocketService {
         
         console.log('CRITICAL FIX: Emitting force_update_read_status event:', forceUpdateData);
         
-        // CRITICAL FIX: Emit multiple events to ensure all clients receive the update
+        // CRITICAL FIX: Enhanced multi-stage approach for maximum reliability
         if (this.socket && this.socket.connected) {
-          // Emit the special event to force UI updates
+          // 1. Emit the special event to force UI updates
           this.socket.emit('force_update_read_status', forceUpdateData);
           
-          // Also emit the standard message_read event
+          // 2. Also emit the standard message_read event
           this.socket.emit('message_read', forceUpdateData);
           
-          // Also emit a global message event that all clients will receive
+          // 3. Also emit a global message event that all clients will receive
           this.socket.emit('global-message', {
             type: 'READ_STATUS_UPDATE',
             data: forceUpdateData,
             targetRooms: ['all'],
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            _uniqueId: `global_${conversationId}_${Date.now()}`
           });
+          
+          // 4. Schedule additional socket emissions at different intervals
+          setTimeout(() => {
+            this.socket?.emit('force_update_read_status', {
+              ...forceUpdateData,
+              _source: 'timeout_50ms',
+              _timestamp: Date.now()
+            });
+          }, 50);
+          
+          setTimeout(() => {
+            this.socket?.emit('global-message', {
+              type: 'READ_STATUS_UPDATE',
+              data: {
+                ...forceUpdateData,
+                _source: 'timeout_300ms',
+                _timestamp: Date.now(),
+                _uniqueId: `global_${conversationId}_${Date.now()}`
+              },
+              targetRooms: ['all'],
+              timestamp: Date.now()
+            });
+          }, 300);
         }
         
-        // CRITICAL FIX: Notify local listeners with multiple events
-        this.notifyListeners('force_update_read_status', forceUpdateData);
-        this.notifyListeners('message_read', forceUpdateData);
+        // 5. Use conversation-specific notification to prevent leakage
+        this.notifyConversationListeners('force_update_read_status', forceUpdateData, conversationId);
+        this.notifyConversationListeners('message_read', forceUpdateData, conversationId);
         
-        // Also emit with legacy event name for backward compatibility
-        this.notifyListeners('messages-read', forceUpdateData);
+        // 6. Also emit with legacy event name for backward compatibility
+        this.notifyConversationListeners('messages-read', forceUpdateData, conversationId);
+        
+        // 7. Add a special event for read status changes to ensure UI updates
+        this.notifyConversationListeners('read_status_changed', {
+          conversationId,
+          senderId: data.otherUserId,
+          readerId: this.userId,
+          timestamp: Date.now(),
+          _forceUpdate: true,
+          _uniqueId: `read_status_${conversationId}_${Date.now()}`
+        }, conversationId);
+        
+        // 8. Schedule additional local notifications at different intervals
+        setTimeout(() => {
+          this.notifyConversationListeners('read_status_changed', {
+            conversationId,
+            senderId: data.otherUserId,
+            readerId: this.userId,
+            timestamp: Date.now(),
+            _forceUpdate: true,
+            _source: 'timeout_100ms',
+            _uniqueId: `read_status_${conversationId}_${Date.now()}`
+          }, conversationId);
+        }, 100);
+        
+        setTimeout(() => {
+          this.notifyConversationListeners('force_update_read_status', {
+            ...forceUpdateData,
+            _source: 'timeout_500ms',
+            _timestamp: Date.now(),
+            _uniqueId: `force_update_${conversationId}_${Date.now()}`
+          }, conversationId);
+        }, 500);
       }
     })
     .catch(error => {
@@ -441,26 +554,32 @@ export class SocketService {
     queueMicrotask(() => {
       console.log('CRITICAL FIX: Locally emitting message_read event for immediate UI update');
       
-      // For the current user who is reading messages, we need to simulate a message_read event
-      // We need to make sure ALL messages in the conversation are marked as read
-      this.notifyListeners('message_read', {
-        ...payload,
-        // For the local UI update, we need to set senderId to null to ensure all messages
-        // are marked as read in the UI regardless of who sent them
+      // Create a local update payload
+      const localUpdatePayload = {
+        conversationId,
+        readerId: this.userId,
+        // For local UI updates, we set senderId to null to mark all messages as read
         senderId: null,
-        // Add forceUpdate flag to ensure UI updates
-        forceUpdate: true
-      });
+        timestamp: new Date().toISOString(),
+        forceUpdate: true,
+        _source: 'local_immediate_update',
+        _requestId: payload.eventId // Use the same ID from the payload
+      };
       
-      // Also emit the legacy format for maximum compatibility
-      this.notifyListeners('messages-read', payload);
+      // Use our conversation-specific notification method to prevent leakage
+      // This ensures the read status update only goes to the correct conversation
+      this.notifyConversationListeners('message_read', localUpdatePayload, conversationId);
+      this.notifyConversationListeners('force_update_read_status', localUpdatePayload, conversationId);
       
-      // CRITICAL FIX: Also emit the special force update event
-      this.notifyListeners('force_update_read_status', {
-        ...payload,
-        // This special event will force the UI to update regardless of sender/reader
-        forceUpdate: true
-      });
+      // Also emit with legacy event name for backward compatibility
+      this.notifyConversationListeners('messages-read', localUpdatePayload, conversationId);
+      
+      // Force a UI update for this conversation only
+      this.notifyConversationListeners('read_status_changed', {
+        conversationId,
+        timestamp: Date.now(),
+        _forceUpdate: true
+      }, conversationId);
     });
     
     console.log('CRITICAL FIX: Emitted mark_messages_read event with enhanced payload and immediate UI update');
@@ -551,19 +670,33 @@ export class SocketService {
    * Subscribe to a socket event
    * @param event The event to subscribe to
    * @param callback The callback function
+   * @param conversationId Optional conversation ID to filter events
    * @returns A function to unsubscribe
    */
-  public subscribe(event: SocketEvent, callback: Function): () => void {
+  public subscribe(event: SocketEvent, callback: Function, conversationId?: string): () => void {
     if (!this.eventListeners.has(event)) {
       this.eventListeners.set(event, new Set());
     }
+
+    // If a conversation ID is provided, create a wrapper function that filters events
+    let effectiveCallback = callback;
     
-    this.eventListeners.get(event)!.add(callback);
+    // Store the original callback for reference (needed for unsubscribing)
+    // @ts-ignore - Add a custom property to track the original callback
+    effectiveCallback._originalCallback = callback;
     
+    // Store the conversation ID this callback is interested in
+    // @ts-ignore - Add a custom property to track the conversation ID
+    effectiveCallback._conversationId = conversationId;
+    
+    // Add the callback to the set of listeners
+    this.eventListeners.get(event)!.add(effectiveCallback);
+    
+    // Return a function to unsubscribe
     return () => {
       const listeners = this.eventListeners.get(event);
       if (listeners) {
-        listeners.delete(callback);
+        listeners.delete(effectiveCallback);
       }
     };
   }
@@ -575,15 +708,93 @@ export class SocketService {
    */
   public notifyListeners(event: string, data: any): void {
     const listeners = this.eventListeners.get(event);
-    if (listeners) {
-      listeners.forEach(callback => {
-        try {
-          callback(data);
-        } catch (error) {
-          console.error(`Error in ${event} listener:`, error);
-        }
+    if (!listeners) return;
+
+    // Extract the conversation ID from the data with multiple fallbacks
+    const dataConversationId = data.conversationId || 
+                              (data.message && data.message.conversationId) || 
+                              (typeof data === 'object' && 'conversationId' in data ? data.conversationId : null);
+    
+    // CRITICAL FIX: Enhanced logging for debugging
+    if (event === 'new_message') {
+      console.log(`🔴 CRITICAL FIX: Notifying listeners for ${event} in conversation ${dataConversationId}`, {
+        messageId: data.id || (data.message && data.message.id),
+        tempId: data.tempId || (data.message && data.message.tempId),
+        activeConversations: Array.from(this.activeConversations),
+        listenerCount: listeners.size
       });
     }
+    
+    // CRITICAL FIX: Call each listener with the event data, with strict conversation ID checking
+    listeners.forEach(callback => {
+      try {
+        // Check if this callback is for a specific conversation
+        // @ts-ignore - Access the custom property we added
+        const callbackConversationId = callback._conversationId;
+        
+        // CRITICAL FIX: More detailed logging for conversation mismatch
+        if (callbackConversationId && dataConversationId && callbackConversationId !== dataConversationId) {
+          console.log(`🔴 CRITICAL FIX: Skipping ${event} listener for conversation ${callbackConversationId} (event is for ${dataConversationId})`);
+          return;
+        }
+        
+        // CRITICAL FIX: Create a new object with the conversation ID explicitly set to avoid reference issues
+        const enhancedData = {
+          ...data,
+          _notifiedAt: Date.now(),
+          _eventName: event
+        };
+        
+        // Call the callback with the enhanced data
+        callback(enhancedData);
+      } catch (error) {
+        console.error(`🔴 CRITICAL FIX: Error in ${event} listener:`, error);
+      }
+    });
+  }
+  
+  /**
+   * CRITICAL FIX: New method to notify only listeners for a specific conversation
+   * @param event The event that occurred
+   * @param data The event data
+   * @param targetConversationId The specific conversation ID to target
+   */
+  public notifyConversationListeners(event: string, data: any, targetConversationId: string): void {
+    const listeners = this.eventListeners.get(event);
+    if (!listeners) return;
+    
+    console.log(`🔴 CRITICAL FIX: Notifying ONLY listeners for ${event} in conversation ${targetConversationId}`);
+    
+    // CRITICAL FIX: Only notify listeners that are either:
+    // 1. Specifically subscribed to this conversation, or
+    // 2. Not subscribed to any specific conversation (global listeners)
+    listeners.forEach(callback => {
+      try {
+        // Check if this callback is for a specific conversation
+        // @ts-ignore - Access the custom property we added
+        const callbackConversationId = callback._conversationId;
+        
+        // Skip if the callback is for a different conversation
+        if (callbackConversationId && callbackConversationId !== targetConversationId) {
+          console.log(`🔴 CRITICAL FIX: Skipping ${event} listener for conversation ${callbackConversationId} (event is for ${targetConversationId})`);
+          return;
+        }
+        
+        // Create a new object with the conversation ID explicitly set
+        const enhancedData = {
+          ...data,
+          conversationId: targetConversationId, // Ensure the conversation ID is set
+          _notifiedAt: Date.now(),
+          _eventName: event,
+          _targetedDelivery: true
+        };
+        
+        // Call the callback with the enhanced data
+        callback(enhancedData);
+      } catch (error) {
+        console.error(`🔴 CRITICAL FIX: Error in ${event} conversation-specific listener:`, error);
+      }
+    });
   }
 
   /**
